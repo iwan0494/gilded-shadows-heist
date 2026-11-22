@@ -1,319 +1,284 @@
-// GILDED SHADOWS — the loop: title, play, caught, win, pause, and the
-// frozen screenshot stagings. This file owns the game state and the rules
-// that tie the modules together: the alarm, the getaway, and the GHOST
-// rating for a run nobody ever spotted.
+// GILDED SHADOWS — main loop. One job: own the state, step the simulation,
+// and hand every frame to the renderer. States: title (planning) → play →
+// caught → win. Winning needs the Sunflower on the exit pad: 5/5 loot
+// without it is not a getaway.
+import { buildRooms } from './world.js';
+import { updateGuard, guardStatus } from './guards.js';
+import { updateCamera } from './cameras.js';
+import { updateTools, throwPebble, useSmoke } from './tools.js';
+import { makePlayer, updatePlayer, nearLoot, onLaser } from './player.js';
+import { drawFrame } from './render.js';
+import { applyShot, setupRoom } from './shots.js';
+import { input, initInput, consumeClick } from './input.js';
+import { initAudio, setMuted, blip, pickup, alarmSwell } from './audio.js';
+import { DAWN_LIMIT, PEBBLES, SMOKES } from './config.js';
 
-import { CANVAS_W, CANVAS_H, FIELD, TUNING } from './config.js';
-import { ROOMS, TOTAL_LOOT, inShadow } from './world.js';
-import { makeGuard, updateGuard } from './guards.js';
-import { makeCamera, updateCamera } from './cameras.js';
-import {
-  makeTools,
-  throwPebble,
-  dropSmoke,
-  updateTools,
-  inSmoke,
-  smokeBlocks,
-  pebbleNoise,
-} from './tools.js';
-import { makePlayer, updatePlayer, atDoor, playerInShadow } from './player.js';
-import { makeInput } from './input.js';
-import {
-  makeAudio,
-  sfxStep,
-  sfxPickup,
-  sfxPebble,
-  sfxSmoke,
-  sfxCaught,
-  sfxWin,
-  sfxDoor,
-  alarmPulse,
-} from './audio.js';
-import { drawGame } from './render.js';
-import { BOT_BUTTONS } from './hud.js';
-import { makeRng } from './random.js';
-import { applyShot } from './shots.js';
+const OBJECTIVES = [
+  'Steal the Midnight Sunflower',
+  'Lift the Ruby Idol and the Brass Crown',
+  'Take the Sunflower — then run!',
+];
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-canvas.width = CANVAS_W;
-canvas.height = CANVAS_H;
-
-const input = makeInput(canvas);
-const audio = makeAudio();
-const rng = makeRng(20261122);
-
-const s = {
-  mode: 'title', // title | play | paused | caught | win | shot
-  roomIndex: 0,
-  room: null,
-  guards: [],
-  cameras: [],
-  player: null,
-  tools: null,
-  alarm: 0,
-  timer: 0,
-  lootGot: 0,
-  lootTotal: TOTAL_LOOT,
-  detection: 0,
-  inShadowNow: false,
-  smokedNow: false,
-  showNotes: false,
-  caughtReason: '',
-  ghost: false,
-  hint: '',
-  callouts: null,
-  now: 0,
-  stepTimer: 0,
-};
-
-s.loadRoom = function loadRoom(idx) {
-  s.roomIndex = idx;
-  // A fresh copy per visit: loot taken-flags reset when the room reloads.
-  s.room = JSON.parse(JSON.stringify(ROOMS[idx]));
-  s.guards = s.room.guards.map(makeGuard);
-  s.cameras = s.room.cameras.map(makeCamera);
-  s.player = makePlayer(s.room.start.x, s.room.start.y);
-  s.tools = makeTools();
-  s.alarm = Math.max(0, s.alarm - 15);
-  s.hint = '';
-};
-
-function newRun() {
-  s.lootGot = 0;
-  s.timer = 0;
-  s.alarm = 0;
-  s.ghost = true;
-  s.caughtReason = '';
-  s.loadRoom(0);
-  s.mode = 'play';
-}
-
-function retryRoom() {
-  const gotBeforeRoom = s.lootGot - s.room.loot.filter((l) => l.taken).length;
-  s.lootGot = gotBeforeRoom;
-  s.loadRoom(s.roomIndex);
-  s.mode = 'play';
-}
-
-function caught(reason) {
-  if (s.mode !== 'play') return;
-  s.mode = 'caught';
-  s.caughtReason = reason;
-  sfxCaught(audio);
-}
-
-function clickButton(x, y) {
-  for (const b of BOT_BUTTONS) {
-    if (x >= b.x && x <= b.x + b.w && y >= 676 + 6 && y <= 676 + 30) {
-      return b.id;
-    }
-  }
-  return null;
-}
-
-function handleClick(x, y) {
-  const btn = clickButton(x, y);
-  if (btn === 'pause') {
-    if (s.mode === 'play') s.mode = 'paused';
-    else if (s.mode === 'paused') s.mode = 'play';
-    return;
-  }
-  if (btn === 'restart') {
-    retryRoom();
-    return;
-  }
-  if (btn === 'notes') {
-    s.showNotes = !s.showNotes;
-    return;
-  }
-  if (btn === 'mute') {
-    audio.muted = !audio.muted;
-    return;
-  }
-  if (s.mode === 'title') {
-    newRun();
-    return;
-  }
-  if (s.mode === 'caught' || s.mode === 'win') {
-    retryRoom();
-    return;
-  }
-  if (s.mode !== 'play') return;
-  // Throw a pebble toward the clicked point on the museum floor.
-  const fx = x - FIELD.x;
-  const fy = y - FIELD.y;
-  if (fx < 0 || fy < 0 || fx > FIELD.w || fy > FIELD.h) return;
-  if (throwPebble(s.tools, s.player.x, s.player.y, fx, fy)) sfxPebble(audio);
-}
-
-function update(dt) {
-  s.now += dt;
-  if (s.mode !== 'play') return;
-
-  s.timer += dt;
-  const p = s.player;
-  const room = s.room;
-
-  // Movement + stealing.
-  const stolen = updatePlayer(p, dt, input, room, s.tools);
-  if (stolen) {
-    s.lootGot += 1;
-    sfxPickup(audio);
-    s.hint = stolen.kind === 'painting'
-      ? 'The Sunflower is yours — get to the next room.'
-      : `${stolen.label} bagged (${s.lootGot}/${s.lootTotal}).`;
-  }
-
-  // Footstep ticks.
-  if (p.moving) {
-    s.stepTimer -= dt;
-    if (s.stepTimer <= 0) {
-      s.stepTimer = p.sneaking ? 0.55 : 0.34;
-      sfxStep(audio, p.sneaking);
-    }
-  }
-
-  // Smoke, pebbles, lockpick rattle.
-  updateTools(s.tools, dt, rng);
-  const smoked = inSmoke(s.tools, p.x, p.y);
-  s.smokedNow = smoked;
-
-  // Guards see, chase, and touch.
-  let alarmPush = 0;
-  let maxDetect = 0;
-  for (const g of s.guards) {
-    const blocked = smokeBlocks(s.tools, g.x, g.y, p.x, p.y);
-    updateGuard(g, dt, p, room, smoked || blocked, s.now);
-    maxDetect = Math.max(maxDetect, g.detect);
-    if (g.detect > 40) {
-      alarmPush = Math.max(alarmPush, TUNING.alarmRiseGuard * (g.detect / 100));
-      if (g.state !== 'calm') s.ghost = false;
-    }
-    if (Math.hypot(g.x - p.x, g.y - p.y) < TUNING.guardTouch) {
-      caught('A guard laid a hand on your shoulder.');
-    }
-  }
-  s.detection = maxDetect;
-
-  // Cameras see and raise the alarm.
-  for (const c of s.cameras) {
-    const blocked = smokeBlocks(s.tools, c.x, c.y, p.x, p.y);
-    const exposure = updateCamera(c, dt, p.x, p.y, room, smoked || blocked, s.now);
-    if (exposure > 0) {
-      alarmPush = Math.max(alarmPush, TUNING.alarmRiseCamera * exposure);
-      s.ghost = false;
-    }
-  }
-
-  // Noise draws guards: carpet running, a pebble's ring, a rattling pick.
-  const noise = pebbleNoise(s.tools);
-  for (const g of s.guards) {
-    if (g.state === 'alert') continue;
-    if (noise && Math.hypot(g.x - noise.x, g.y - noise.y) < noise.r) {
-      g.investigate = { x: noise.x, y: noise.y };
-      if (g.detect < 50) g.detect = 50;
-    }
-    if (s.tools.rattle > 0 && Math.hypot(g.x - p.x, g.y - p.y) < 170) {
-      g.investigate = { x: p.x, y: p.y };
-      if (g.detect < 50) g.detect = 50;
-    }
-    if (p.noise > 0.6 && Math.hypot(g.x - p.x, g.y - p.y) < TUNING.carpetNoiseRadius) {
-      g.investigate = { x: p.x, y: p.y };
-      if (g.detect < 45) g.detect = 45;
-    }
-  }
-
-  // The alarm climbs while anyone sees the thief, and drains in the dark.
-  if (alarmPush > 0) {
-    s.alarm = Math.min(100, s.alarm + alarmPush * dt);
-  } else {
-    s.alarm = Math.max(0, s.alarm - TUNING.alarmFall * dt);
-  }
-  alarmPulse(audio, s.alarm);
-  if (s.alarm >= 100) {
-    caught('The alarm brought the whole museum down on you.');
-    return;
-  }
-
-  // Doors and the exit.
-  const at = atDoor(p, room);
-  if (at === 'door') {
-    if (room.loot.every((l) => l.taken)) {
-      sfxDoor(audio);
-      s.loadRoom(room.door.to);
-      s.hint = `${s.room.name} — ${s.room.objective}.`;
-    } else {
-      s.hint = 'The door is locked — clear this room first.';
-    }
-  } else if (at === 'exit') {
-    if (s.lootGot >= s.lootTotal) {
-      s.mode = 'win';
-      sfxWin(audio);
-    } else {
-      s.hint = `The exit stays shut until ${s.lootTotal}/${s.lootTotal} loot is bagged.`;
-    }
-  }
-
-  s.inShadowNow = playerInShadow(p, room);
-  s._p = p;
-}
-
-function frame(t) {
-  const dt = Math.min(0.05, (t - (frame._last ?? t)) / 1000 || 0);
-  frame._last = t;
-
-  // Edge-triggered keys.
-  if (input.pressed.KeyH) s.showNotes = !s.showNotes;
-  if (input.pressed.KeyM) audio.muted = !audio.muted;
-  if (input.pressed.KeyQ && s.mode === 'play') {
-    if (dropSmoke(s.tools, s.player.x, s.player.y)) sfxSmoke(audio);
-  }
-  if (input.pressed.Escape) {
-    if (s.mode === 'play') s.mode = 'paused';
-    else if (s.mode === 'paused') s.mode = 'play';
-  }
-  if (input.pressed.KeyR && (s.mode === 'play' || s.mode === 'paused' || s.mode === 'caught' || s.mode === 'win')) {
-    if (s.mode === 'caught' || s.mode === 'win') newRun();
-    else retryRoom();
-  }
-  if (input.pressed.Enter && s.mode === 'title') newRun();
-  input.pressed = {};
-
-  if (input.click) {
-    handleClick(input.click.x, input.click.y);
-    input.click = null;
-  }
-
-  update(dt);
-
-  // The view the renderer reads: HUD numbers plus the world.
-  const view = {
-    ...s,
-    muted: audio.muted,
-    noise: s.player ? s.player.noise : 0,
-    sneaking: s.player ? s.player.sneaking : false,
-    inShadow: s.inShadowNow,
-    smoked: s.smokedNow,
-    room: s.room,
-    guards: s.guards,
-    cameras: s.cameras,
-    player: s.player,
-    tools: s.tools,
+function newState() {
+  const rooms = buildRooms();
+  const state = {
+    rooms,
+    room: 0,
+    mode: 'title',
+    frozen: false,
+    paused: false,
+    notes: false,
+    time: 0,
+    dawn: DAWN_LIMIT,
+    dawnHit: false,
+    alarm: 0,
+    maxAlarm: 0,
+    spotted: false,
+    ghost: false,
+    taken: {},
+    lootValue: 0,
+    pebbles: PEBBLES,
+    smokeLeft: SMOKES,
+    player: makePlayer(rooms[0].playerStart),
+    guards: [],
+    cameras: [],
+    noises: [],
+    smokes: [],
+    lasersLive: true,
+    laserCooldown: 0,
+    picking: false,
+    pickT: 0,
+    pickRattle: 0,
+    pickTarget: null,
+    caughtBy: null,
+    objective: OBJECTIVES[0],
+    speaker: 'WREN',
+    wren: 'Three rooms, five pieces, one way out. Observe first — Marlow is slow, use that.',
+    callouts: [],
+    roster: [],
+    nearestGuard: null,
+    qHeld: false,
   };
-  drawGame(ctx, view);
-  document.getElementById('status').textContent =
-    `${s.room ? s.room.name : ''} — loot ${s.lootGot}/${s.lootTotal}, alarm ${Math.round(s.alarm)}%, ${s.mode}`;
+  setupRoom(state, 0);
+  return state;
+}
+
+function refreshDerived(state) {
+  if (state.frozen) return;
+  let best = null;
+  for (const g of state.guards) {
+    if (!best || g.meter > best.meter) best = g;
+  }
+  state.nearestGuard = best;
+  const live = {};
+  for (const g of state.guards) live[g.def.short] = guardStatus(g);
+  state.roster = ['MARLOW', 'DARA', 'VOSS', 'KELL'].map((n) => ({
+    name: n,
+    status: live[n] || 'PATROLLING',
+  }));
+}
+
+function takeLoot(state, loot) {
+  state.taken[loot.id] = true;
+  const def = { sunflower: 500000, scarab: 120000, idol: 180000, crown: 250000, sapphires: 150000 }[loot.id];
+  state.lootValue += def;
+  pickup();
+  if (loot.id === 'sunflower') {
+    state.lasersLive = false;
+    state.objective = 'Sunflower secured — get to the exit!';
+    state.speaker = 'WREN';
+    state.wren = 'Sunflower secured — get to the exit!';
+  } else {
+    state.wren = 'Got it. ' + (5 - Object.keys(state.taken).length) + ' to go — stay quiet.';
+  }
+}
+
+function update(dt, state) {
+  const room = state.rooms[state.room];
+  state.time += dt;
+  state.dawn = Math.max(0, DAWN_LIMIT - state.time);
+  if (state.dawn <= 0 && !state.dawnHit) {
+    state.dawnHit = true;
+    state.alarm = Math.max(state.alarm, 85);
+    state.speaker = 'WREN';
+    state.wren = 'Dawn’s breaking — the museum wakes up! Move!';
+    alarmSwell();
+  }
+
+  updatePlayer(dt, state, room, input);
+  for (const g of state.guards) updateGuard(g, dt, state, room);
+  for (const c of state.cameras) updateCamera(c, dt, state, room);
+  updateTools(dt, state);
+
+  // Alarm decays when nobody sees you.
+  const anyAlert = state.guards.some((g) => g.state === 'ALERT');
+  const anySpotted = state.cameras.some((c) => c.spotted);
+  if (!anyAlert && !anySpotted) state.alarm = Math.max(0, state.alarm - 3 * dt);
+  state.maxAlarm = Math.max(state.maxAlarm, state.alarm);
+  if (state.alarm >= 100) state.caughtBy = 'The alarm';
+
+  // Lasers bite once a second while you stand in them.
+  state.laserCooldown -= dt;
+  if (onLaser(state, room) && state.laserCooldown <= 0) {
+    state.laserCooldown = 1;
+    state.alarm = Math.min(100, state.alarm + 20);
+    blip(180, 0.2, 'square', 0.06);
+  }
+
+  // Lockpicking: hold E near a case or the pedestal.
+  const near = nearLoot(state, room);
+  state.pickTarget = near
+    ? { label: near.id === 'sunflower' ? 'Lift the Sunflower' : 'Pick the case', loot: near }
+    : null;
+  if (near && input.keys.has('e')) {
+    state.picking = true;
+    const need = near.id === 'sunflower' ? 1.5 : 1.2;
+    state.pickT = Math.min(1, state.pickT + dt / need);
+    state.pickRattle += dt;
+    if (state.pickRattle > 0.5) {
+      state.pickRattle = 0;
+      state.noises.push({ x: state.player.x, y: state.player.y, r: 6, maxR: 110, age: 0 });
+    }
+    if (state.pickT >= 1) {
+      takeLoot(state, near);
+      state.picking = false;
+      state.pickT = 0;
+    }
+  } else {
+    state.picking = false;
+    state.pickT = 0;
+    state.pickRattle = 0;
+  }
+
+  // Pebble: click to throw toward the mouse.
+  if (consumeClick() && state.pebbles > 0) {
+    const tx = Math.max(0, Math.min(1014, input.clickX - 8));
+    const ty = Math.max(0, Math.min(596, input.clickY - 64));
+    if (throwPebble(state, tx, ty)) blip(900, 0.06, 'triangle', 0.05);
+  }
+  // Smoke: Q, edge-triggered.
+  if (input.keys.has('q') && !state.qHeld) {
+    state.qHeld = true;
+    if (useSmoke(state)) blip(300, 0.2, 'sine', 0.05);
+  }
+  if (!input.keys.has('q')) state.qHeld = false;
+
+  // Doors between rooms.
+  const p = state.player;
+  if (room.doorNorth && p.y < 14 && Math.abs(p.x - 507) < 40 && state.room < 2) {
+    setupRoom(state, state.room + 1);
+    state.objective = OBJECTIVES[state.room];
+    state.wren = state.room === 1
+      ? 'Dara walks the long rectangle — time the corners.'
+      : 'Voss guards the vault himself. Lasers on the Sunflower. Careful.';
+  } else if (room.doorSouth && p.y > 582 && Math.abs(p.x - 507) < 40 && state.room > 0) {
+    setupRoom(state, state.room - 1);
+    state.objective = OBJECTIVES[state.room];
+  }
+
+  // The exit pad only opens for the one who carries the Sunflower.
+  if (room.exitPad) {
+    const pad = room.exitPad;
+    const onPad = p.x >= pad.x && p.x <= pad.x + pad.w && p.y >= pad.y && p.y <= pad.y + pad.h;
+    if (onPad && state.taken.sunflower) {
+      state.mode = 'win';
+      state.ghost = !state.spotted;
+    } else if (onPad && !state.taken.sunflower) {
+      state.wren = 'The pad stays dark without the Sunflower. Go back in.';
+    }
+  }
+
+  if (state.caughtBy) state.mode = 'caught';
+}
+
+function resetRoom(state) {
+  const idx = state.room;
+  const alarm = state.alarm;
+  const taken = state.taken;
+  const lootValue = state.lootValue;
+  setupRoom(state, idx);
+  state.mode = 'play';
+  state.alarm = Math.max(0, alarm - 20);
+  state.taken = taken;
+  state.lootValue = lootValue;
+  state.caughtBy = null;
+  state.picking = false;
+  state.pickT = 0;
+  state.noises = [];
+  state.smokes = [];
+  state.wren = 'Again. Slower this time — watch the pies above their heads.';
+}
+
+export function main() {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const state = newState();
+  initInput(canvas);
+
+  const params = new URLSearchParams(location.search);
+  const shot = params.get('shot');
+  if (shot) applyShot(state, Number(shot));
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+
+    if (input.keys.has('m') && !state.mHeld) {
+      state.mHeld = true;
+      setMuted(!isMuted());
+    }
+    if (!input.keys.has('m')) state.mHeld = false;
+
+    if (state.mode === 'title') {
+      if (input.keys.has('enter')) {
+        initAudio();
+        state.mode = 'play';
+      }
+    } else if (state.mode === 'play') {
+      if (input.keys.has('escape') && !state.escHeld) {
+        state.escHeld = true;
+        state.paused = !state.paused;
+      }
+      if (!input.keys.has('escape')) state.escHeld = false;
+      if (input.keys.has('h') && !state.hHeld) {
+        state.hHeld = true;
+        state.notes = !state.notes;
+      }
+      if (!input.keys.has('h')) state.hHeld = false;
+      if (!state.paused && !state.frozen) update(dt, state);
+    } else if (state.mode === 'caught' || state.mode === 'win') {
+      if (input.keys.has('r')) resetRoom(state);
+    }
+
+    refreshDerived(state);
+    drawFrame(ctx, state);
+    if (state.notes && state.mode === 'play') {
+      ctx.fillStyle = 'rgba(8,12,22,0.92)';
+      ctx.fillRect(340, 150, 600, 300);
+      ctx.strokeStyle = '#d8a94e';
+      ctx.strokeRect(340.5, 150.5, 600, 300);
+      ctx.fillStyle = '#d8a94e';
+      ctx.font = 'bold 18px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('FIELD NOTES — WREN', 640, 190);
+      ctx.fillStyle = '#e8e2d2';
+      ctx.font = '14px system-ui, sans-serif';
+      const lines = [
+        'MARLOW — slow, long pauses. Use the gaps.',
+        'DARA — walks the rectangle. Corners are safe.',
+        'VOSS — guards the vault. Never rush the lasers.',
+        'KELL — east corridor. Watch the camera sweep.',
+        'Shadow halves how fast they see you.',
+        'The exit pad wants the Sunflower, nothing else.',
+      ];
+      lines.forEach((l, i) => ctx.fillText(l, 640, 226 + i * 30));
+      ctx.textAlign = 'left';
+    }
+    window.__gameReady = true;
+    requestAnimationFrame(frame);
+  }
   requestAnimationFrame(frame);
 }
 
-// Boot.
-s.loadRoom(0);
-s.mode = 'title';
-const shot = new URLSearchParams(location.search).get('shot');
-if (shot) {
-  const n = Number(shot);
-  if (n >= 1 && n <= 4) applyShot(s, n);
-}
-window.__gameReady = true;
-requestAnimationFrame(frame);
+main();

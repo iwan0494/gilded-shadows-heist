@@ -1,77 +1,49 @@
-// GILDED SHADOWS — tuning numbers and the night-museum palette.
-// One place for every magic number the rest of the game reads.
+// GILDED SHADOWS — constants: layout, palettes, crew, loot, mission rules.
+// One job: every number the rest of the game agrees on lives here.
+export const W = 1280;
+export const H = 720;
+export const TOP = 56; // top bar height
+export const PLAY = { x: 8, y: 64, w: 1014, h: 596 }; // playfield (local coords 0..1014, 0..596)
+export const PANEL = { x: 1030, y: 64, w: 242, h: 596 }; // right HUD panel
+export const DIALOG = { x: 8, y: 664, w: 1264, h: 48 }; // Wren radio strip
 
-export const CANVAS_W = 1280;
-export const CANVAS_H = 720;
-
-// Playfield (the museum floor) in canvas pixels; the right panel and the
-// top/bottom bars frame it.
-export const FIELD = { x: 16, y: 76, w: 1018, h: 592 };
-export const PANEL = { x: 1042, y: 8, w: 222, h: 704 };
-export const TOPBAR = { x: 16, y: 8, w: 1018, h: 60 };
-export const BOTBAR = { x: 16, y: 676, w: 1018, h: 36 };
-
-export const PALETTE = {
-  bg: '#0c0a12',
-  floor: '#2a2733',
-  floorAlt: '#26222e',
-  marble: '#b8b2a4',
-  marbleLine: '#8f887a',
-  carpet: '#7a1f2b',
-  carpetEdge: '#a83240',
-  shadow: '#14101f',
-  wall: '#4a4238',
-  wallTop: '#6b5f4e',
-  gold: '#d9a441',
-  goldBright: '#f2c14e',
-  statue: '#9a938a',
-  guard: '#3d4a5c',
-  guardAlert: '#a83226',
-  coneCalm: 'rgba(217, 164, 65, 0.20)',
-  coneSuspicious: 'rgba(232, 120, 40, 0.30)',
-  coneAlert: 'rgba(200, 50, 30, 0.35)',
-  cameraArc: 'rgba(220, 60, 50, 0.25)',
-  cameraBlind: 'rgba(150, 150, 150, 0.18)',
-  player: '#1c1a26',
-  playerTrim: '#d9a441',
-  smoke: 'rgba(200, 200, 210, 0.35)',
-  lootGlow: 'rgba(242, 193, 78, 0.55)',
-  exitGreen: '#3fae6a',
-  text: '#e8e0cf',
-  textDim: '#9d968a',
-  panel: '#171420',
-  panelEdge: '#3a3348',
-  alarmQuiet: '#3fae6a',
-  alarmMid: '#d9a441',
-  alarmHigh: '#c83226',
+// Stealth palette (deep navy + warm gold). Alarm flips the room red (see render).
+export const C = {
+  bg: '#0b1220',
+  panel: '#101a2e',
+  panelEdge: '#2a3a58',
+  gold: '#d8a94e',
+  goldDim: '#9a7a35',
+  teal: '#3fb8a6',
+  red: '#d64541',
+  amber: '#e8a33d',
+  ink: '#e8e2d2',
+  dim: '#8b96ab',
+  floorA: '#1b2639',
+  floorB: '#151f30',
+  carpet: '#7e1f2a',
+  carpetEdge: '#d8a94e',
+  shadow: '#0a0f1c',
+  smoke: '#9aa3b2',
 };
 
-export const TUNING = {
-  playerWalk: 150,
-  playerSneak: 72,
-  playerRun: 205,
-  playerRadius: 12,
-  guardSpeed: 58,
-  guardChase: 128,
-  guardRange: 230,
-  guardHalfAngle: 0.56, // ~32 degrees each side
-  guardTouch: 26,
-  cameraRange: 250,
-  cameraHalfAngle: 0.42,
-  detectRise: 55, // per second, fully lit inside a cone
-  detectFall: 30,
-  alarmRiseGuard: 26,
-  alarmRiseCamera: 20,
-  alarmFall: 9,
-  shadowRangeFactor: 0.45, // cones reach much less far into shadow
-  shadowDetectFactor: 0.45,
-  smokeRadius: 95,
-  smokeSeconds: 6,
-  pebblesStart: 4,
-  smokeStart: 2,
-  lockpickSeconds: 2.6,
-  paintingSeconds: 1.6,
-  carpetNoiseRadius: 150,
-  pebbleNoiseRadius: 170,
-  rattleChance: 0.25,
-};
+export const CREW = [
+  { name: 'SABLE', role: 'infiltrator — you', note: 'On the floor. Hood up, hands steady.' },
+  { name: 'WREN', role: 'handler — radio', note: 'In your ear. Sees the whole museum.' },
+  { name: 'JINX', role: 'getaway driver', note: 'Outside, engine running. Do not keep her waiting.' },
+];
+
+export const LOOT = [
+  { id: 'sunflower', name: 'The Midnight Sunflower', value: 500000, room: 2 },
+  { id: 'scarab', name: 'Emerald Scarab', value: 120000, room: 0 },
+  { id: 'idol', name: 'Ruby Idol', value: 180000, room: 1 },
+  { id: 'crown', name: 'The Brass Crown', value: 250000, room: 1 },
+  { id: 'sapphires', name: 'Vault Sapphires', value: 150000, room: 2 },
+];
+export const LOOT_TOTAL = LOOT.reduce((s, l) => s + l.value, 0); // 1,200,000
+
+export const DAWN_LIMIT = 300; // 5:00 mission countdown, seconds
+export const PEBBLES = 4;
+export const SMOKES = 2;
+export const GUARD_TOUCH = 20; // guard catches you inside this distance
+export const PLAYER_R = 12;

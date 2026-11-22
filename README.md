@@ -7,33 +7,43 @@
 A night-time museum heist. Top-down, candle-lit marble halls: slip past
 patrolling guards and their vision cones, dodge sweeping wall cameras, and
 steal **The Midnight Sunflower** — then get out through the service exit
-without raising the alarm.
+before dawn, without raising the alarm.
+
+You are **SABLE**, infiltrator. **WREN** talks in your ear on the radio.
+**JINX** waits outside with the engine running.
 
 Three rooms, one getaway:
 
-1. **The Marble Atrium** — the Sunflower hangs here, glowing gold above the
-   red carpet. Two guards patrol the marble; one camera sweeps the hall.
-2. **The Gilded Gallery** — side gallery and service corridor give two routes
-   around the patrols. Two more pieces of loot wait behind glass.
-3. **The Vault Below** — the last loot sits in the dark vault. Smoke helps;
-   noise hurts. The exit opens only when all five pieces are in the bag.
+1. **The Marble Atrium** — wide, legible patrols, long pauses, generous gaps.
+   The Emerald Scarab waits in a glass case by the west wall.
+2. **The Gilded Gallery** — paintings, cases, and Officer Dara's long
+   rectangular route. The Ruby Idol and the Brass Crown are here.
+3. **The Vault Below** — the Sunflower sits on a pedestal in the middle,
+   bobbing in gold light, ringed by red lasers. Curator Voss walks the
+   vault. Take the Sunflower, then run — the exit pad only opens for the
+   one who carries it.
 
 ## How to play
 
 - **WASD / arrows** — move. **SHIFT** — sneak (slow, silent on marble).
-- **Mouse aim + CLICK** — throw a pebble; guards walk over to investigate
-  the noise.
-- **E (hold)** — pick a locked display case. Slow, and it can rattle.
+- **Mouse aim + CLICK** — throw a pebble; the nearest guard leaves his
+  route to investigate the noise. Watch the noise ring.
+- **E (hold)** — pick a locked display case, or lift the Sunflower.
+  Slow, and it can rattle.
 - **Q** — smoke pellet: blinds cameras and guards nearby for a few seconds.
 - **H** — field notes. **M** — mute. **ESC** — pause. **R** — restart room.
 
-Watch the **alarm meter**: guards and cameras raise it when they see you,
-it falls when you stay out of sight. **SHADOW** hides you; running on the
-red carpet is loud; sneaking on marble is silent. If a guard touches you or
-the alarm fills, you are caught — and you retry the room.
+Every guard shows what he knows: a **detection pie** fills above his head,
+a **"?"** means he heard something, a **"!"** means he sees you. Detection
+builds gradually — distance, light, and speed all matter — and a guard who
+loses you searches, then gives up, jumpier than before. **SHADOW** hides
+you; running on the red carpet is loud; sneaking on marble is silent.
+If a guard touches you or the alarm fills, you are caught — and you retry
+the room.
 
-Win clean and the getaway screen rates you **GHOST** if you were never
-spotted.
+The mission ends at dawn: **DAWN IN 05:00**. When it hits zero, the museum
+wakes up and the alarm jumps to ALARMED. Win clean and the getaway screen
+rates you **GHOST** if you were never spotted.
 
 ## Run it
 

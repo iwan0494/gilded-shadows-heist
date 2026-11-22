@@ -1,62 +1,38 @@
-// GILDED SHADOWS — keyboard and mouse state, read fresh each frame.
-// WASD/arrows move, SHIFT sneaks, E (hold) steals, Q smoke, H notes,
-// M mute, ESC pause, R restart. Click throws a pebble toward the mouse.
+// GILDED SHADOWS — input. One job: keys + mouse, normalized.
+// Click = throw a pebble toward the mouse. Shift = sneak. E held = pick.
+export const input = {
+  keys: new Set(),
+  mouse: { x: 0, y: 0 },
+  clicked: false,
+  clickX: 0,
+  clickY: 0,
+};
 
-export function makeInput(canvas) {
-  const input = {
-    up: false,
-    down: false,
-    left: false,
-    right: false,
-    sneak: false,
-    interact: false,
-    mouseX: 0,
-    mouseY: 0,
-    click: null, // {x, y} in canvas pixels, consumed by the loop
-    pressed: {}, // edge-triggered keys, consumed by the loop
-  };
-
-  const KEYMAP = {
-    KeyW: 'up',
-    ArrowUp: 'up',
-    KeyS: 'down',
-    ArrowDown: 'down',
-    KeyA: 'left',
-    ArrowLeft: 'left',
-    KeyD: 'right',
-    ArrowRight: 'right',
-    ShiftLeft: 'sneak',
-    ShiftRight: 'sneak',
-    KeyE: 'interact',
-  };
-
+export function initInput(canvas) {
   window.addEventListener('keydown', (e) => {
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+    const k = e.key.toLowerCase();
+    input.keys.add(k);
+    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) {
       e.preventDefault();
     }
-    const field = KEYMAP[e.code];
-    if (field) input[field] = true;
-    if (!e.repeat) input.pressed[e.code] = true;
   });
-
-  window.addEventListener('keyup', (e) => {
-    const field = KEYMAP[e.code];
-    if (field) input[field] = false;
-  });
-
+  window.addEventListener('keyup', (e) => input.keys.delete(e.key.toLowerCase()));
+  window.addEventListener('blur', () => input.keys.clear());
   canvas.addEventListener('mousemove', (e) => {
     const r = canvas.getBoundingClientRect();
-    input.mouseX = ((e.clientX - r.left) / r.width) * canvas.width;
-    input.mouseY = ((e.clientY - r.top) / r.height) * canvas.height;
+    input.mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
+    input.mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
   });
-
   canvas.addEventListener('mousedown', (e) => {
     const r = canvas.getBoundingClientRect();
-    input.click = {
-      x: ((e.clientX - r.left) / r.width) * canvas.width,
-      y: ((e.clientY - r.top) / r.height) * canvas.height,
-    };
+    input.clickX = (e.clientX - r.left) * (canvas.width / r.width);
+    input.clickY = (e.clientY - r.top) * (canvas.height / r.height);
+    input.clicked = true;
   });
+}
 
-  return input;
+export function consumeClick() {
+  const c = input.clicked;
+  input.clicked = false;
+  return c;
 }

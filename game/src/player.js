@@ -1,104 +1,101 @@
-// GILDED SHADOWS — the thief: movement, sneaking, noise, and the
-// hold-to-steal interactions (cutting the painting down, picking a case).
+// GILDED SHADOWS — the thief. One job: move, sneak, collide, interact.
+// SABLE moves at 150 px/s walking, 75 sneaking. Running on the red carpet
+// is loud; sneaking on marble is silent.
+import { pointOnCarpet, pointInShadow } from './world.js';
+import { PLAYER_R } from './config.js';
 
-import { TUNING } from './config.js';
-import { resolveCollisions, inShadow, onCarpet, pointInRect } from './world.js';
-
-export function makePlayer(x, y) {
+export function makePlayer(start) {
   return {
-    x,
-    y,
-    r: TUNING.playerRadius,
+    x: start.x, y: start.y,
     dir: -Math.PI / 2,
-    sneaking: false,
-    moving: false,
+    sneak: false,
     running: false,
-    noise: 0, // 0..1, how loud the last step was
-    noisePulse: 0, // expanding ring timer after a loud step
-    interact: null, // loot currently being stolen {loot, progress, needed}
-    spotted: false, // ever seen this run (for the GHOST rating)
+    moving: false,
+    inShadow: false,
+    onCarpet: false,
+    stepT: 0,
   };
 }
 
-// Nearest loot the thief can reach (within 46px), if any.
-export function nearLoot(player, room) {
-  let best = null;
-  let bestD = 46;
-  for (const l of room.loot) {
-    if (l.taken) continue;
-    const d = Math.hypot(l.x - player.x, l.y - player.y);
-    if (d < bestD) {
-      bestD = d;
-      best = l;
+function collide(p, room) {
+  // Keep inside the playfield.
+  p.x = Math.max(PLAYER_R, Math.min(1014 - PLAYER_R, p.x));
+  p.y = Math.max(PLAYER_R, Math.min(596 - PLAYER_R, p.y));
+  // Push out of sight-blocking walls and statues.
+  for (const w of room.walls) {
+    const cx = Math.max(w.x, Math.min(p.x, w.x + w.w));
+    const cy = Math.max(w.y, Math.min(p.y, w.y + w.h));
+    const dx = p.x - cx, dy = p.y - cy;
+    const d = Math.hypot(dx, dy);
+    if (d < PLAYER_R) {
+      if (d === 0) { p.y -= PLAYER_R; continue; }
+      p.x = cx + (dx / d) * PLAYER_R;
+      p.y = cy + (dy / d) * PLAYER_R;
     }
   }
-  return best;
+  for (const s of room.statues) {
+    const dx = p.x - s.x, dy = p.y - s.y;
+    const d = Math.hypot(dx, dy);
+    const min = PLAYER_R + s.r;
+    if (d < min && d > 0) {
+      p.x = s.x + (dx / d) * min;
+      p.y = s.y + (dy / d) * min;
+    }
+  }
 }
 
-export function updatePlayer(p, dt, input, room, tools) {
-  let mx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  let my = (input.down ? 1 : 0) - (input.up ? 1 : 0);
-  const len = Math.hypot(mx, my);
-  p.moving = len > 0;
-  p.sneaking = !!input.sneak;
-  p.running = p.moving && !p.sneaking;
-
-  if (len > 0) {
-    mx /= len;
-    my /= len;
-    // SHIFT is sneak; plain movement is a brisk walk. There is no sprint
-    // key: running on carpet is loud, so speed stays a quiet choice.
-    const v = p.sneaking ? TUNING.playerSneak : TUNING.playerWalk;
-    p.x += mx * v * dt;
-    p.y += my * v * dt;
+export function updatePlayer(dt, state, room, input) {
+  const p = state.player;
+  let mx = 0, my = 0;
+  if (input.keys.has('arrowup') || input.keys.has('w')) my -= 1;
+  if (input.keys.has('arrowdown') || input.keys.has('s')) my += 1;
+  if (input.keys.has('arrowleft') || input.keys.has('a')) mx -= 1;
+  if (input.keys.has('arrowright') || input.keys.has('d')) mx += 1;
+  p.sneak = input.keys.has('shift');
+  p.moving = mx !== 0 || my !== 0;
+  if (p.moving) {
+    const len = Math.hypot(mx, my);
+    const speed = p.sneak ? 75 : 150;
+    p.x += (mx / len) * speed * dt;
+    p.y += (my / len) * speed * dt;
     p.dir = Math.atan2(my, mx);
   }
-  resolveCollisions(p, room);
-
-  // Noise: running on carpet rings out; sneaking on marble is silent.
-  const carpet = onCarpet(p.x, p.y, room);
-  const target = !p.moving ? 0 : p.sneaking ? 0.08 : carpet ? 1 : 0.35;
-  p.noise += (target - p.noise) * Math.min(1, dt * 8);
-  if (p.noise > 0.6 && p.moving) {
-    p.noisePulse += dt;
-    if (p.noisePulse > 0.5) p.noisePulse = 0;
+  collide(p, room);
+  p.inShadow = pointInShadow(p.x, p.y, room);
+  p.onCarpet = pointOnCarpet(p.x, p.y, room);
+  p.running = p.moving && !p.sneak;
+  // Loud steps on the carpet: a noise pulse while running across it.
+  if (p.running && p.onCarpet) {
+    p.stepT += dt;
+    if (p.stepT > 0.8) {
+      p.stepT = 0;
+      state.noises.push({ x: p.x, y: p.y, r: 6, maxR: 150, age: 0 });
+    }
   } else {
-    p.noisePulse = 0;
+    p.stepT = 0;
   }
+}
 
-  // Hold-E stealing: the painting comes off the wall, a case picks open.
-  const loot = nearLoot(p, room);
-  if (input.interact && loot) {
-    const needed = loot.kind === 'painting' ? TUNING.paintingSeconds : TUNING.lockpickSeconds;
-    if (!p.interact || p.interact.loot !== loot) {
-      p.interact = { loot, progress: 0, needed };
-    }
-    p.interact.progress += dt / needed;
-    tools.lockTarget = loot.locked ? loot : null;
-    tools.lockpick = p.interact.progress;
-    if (p.interact.progress >= 1) {
-      loot.taken = true;
-      p.interact = null;
-      tools.lockTarget = null;
-      tools.lockpick = 0;
-      return loot;
-    }
-  } else {
-    if (p.interact) p.interact.progress = Math.max(0, p.interact.progress - dt * 0.8);
-    if (!p.interact || p.interact.progress <= 0) p.interact = null;
-    tools.lockTarget = null;
-    tools.lockpick = 0;
+// Nearest loot the player can take right now (within 34 px, not yet taken).
+export function nearLoot(state, room) {
+  for (const l of room.loot) {
+    if (state.taken[l.id]) continue;
+    if (Math.hypot(l.x - state.player.x, l.y - state.player.y) < 40) return l;
   }
   return null;
 }
 
-// True when the thief stands in a doorway (or the exit) of this room.
-export function atDoor(p, room) {
-  if (room.door && pointInRect(p.x, p.y, room.door)) return 'door';
-  if (room.exit && pointInRect(p.x, p.y, room.exit)) return 'exit';
-  return null;
-}
-
-export function playerInShadow(p, room) {
-  return inShadow(p.x, p.y, room);
+// Is the player standing on a red laser beam while the lasers are live?
+export function onLaser(state, room) {
+  if (!room.lasers.length || !state.lasersLive) return false;
+  const p = state.player;
+  for (const b of room.lasers) {
+    const dx = b.x2 - b.x1, dy = b.y2 - b.y1;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 === 0 ? 0 : ((p.x - b.x1) * dx + (p.y - b.y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const px = b.x1 + t * dx, py = b.y1 + t * dy;
+    if (Math.hypot(p.x - px, p.y - py) < 14) return true;
+  }
+  return false;
 }

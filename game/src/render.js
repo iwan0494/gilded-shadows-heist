@@ -1,457 +1,578 @@
-// GILDED SHADOWS — everything the eye sees: the marble floor, the red
-// carpet, the dark corners, the guards and their cones, the sweeping
-// cameras, the thief, and the title / caught / win screens.
+// GILDED SHADOWS — render. One job: draw the museum so it reads as a
+// museum, not a tile set: checker marble, gold-framed paintings, glass
+// cases, statues, plants, patterned carpet, lamp pools, and characters with
+// a 2px rim — guards you can read, a thief you can see.
+import { C, PLAY } from './config.js';
+import { tileJitter } from './random.js';
+import { drawTopBar, drawPanel, drawDialog, drawCallouts, drawPlan, drawWin, drawCaught } from './hud.js';
 
-import { FIELD, PALETTE, TUNING, CANVAS_W, CANVAS_H } from './config.js';
-import { cameraAngle } from './cameras.js';
-import { drawTopBar, drawPanel, drawBottomBar, drawCallouts } from './hud.js';
+const X = (x) => PLAY.x + x;
+const Y = (y) => PLAY.y + y;
 
-function conePath(ctx, x, y, dir, half, range) {
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.arc(x, y, range, dir - half, dir + half);
-  ctx.closePath();
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (n >> 16) + amt));
+  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
+  const b = Math.max(0, Math.min(255, (n & 255) + amt));
+  return `rgb(${r},${g},${b})`;
 }
 
-function drawFloor(ctx, room) {
-  // Marble tiles.
-  for (let ty = 0; ty < 8; ty++) {
-    for (let tx = 0; tx < 14; tx++) {
-      ctx.fillStyle = (tx + ty) % 2 === 0 ? PALETTE.floor : PALETTE.floorAlt;
-      ctx.fillRect(FIELD.x + tx * 73, FIELD.y + ty * 74, 73, 74);
+function drawFloor(ctx) {
+  const T = 42;
+  for (let ty = 0; ty < 596; ty += T) {
+    for (let tx = 0; tx < 1014; tx += T) {
+      const j = tileJitter(tx, ty, 7) * 7;
+      const even = ((tx / T) + (ty / T)) % 2 === 0;
+      ctx.fillStyle = shade(even ? C.floorA : C.floorB, j);
+      ctx.fillRect(X(tx), Y(ty), T, T);
     }
   }
-  ctx.strokeStyle = 'rgba(184, 178, 164, 0.12)';
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
   ctx.lineWidth = 1;
-  for (let tx = 0; tx <= 14; tx++) {
-    ctx.beginPath();
-    ctx.moveTo(FIELD.x + tx * 73, FIELD.y);
-    ctx.lineTo(FIELD.x + tx * 73, FIELD.y + FIELD.h);
-    ctx.stroke();
+  for (let tx = 0; tx <= 1014; tx += T) {
+    ctx.beginPath(); ctx.moveTo(X(tx), Y(0)); ctx.lineTo(X(tx), Y(596)); ctx.stroke();
   }
-  for (let ty = 0; ty <= 8; ty++) {
-    ctx.beginPath();
-    ctx.moveTo(FIELD.x, FIELD.y + ty * 74);
-    ctx.lineTo(FIELD.x + FIELD.w, FIELD.y + ty * 74);
-    ctx.stroke();
+  for (let ty = 0; ty <= 596; ty += T) {
+    ctx.beginPath(); ctx.moveTo(X(0), Y(ty)); ctx.lineTo(X(1014), Y(ty)); ctx.stroke();
   }
-  // Red carpet strips.
-  for (const c of room.carpet) {
-    ctx.fillStyle = PALETTE.carpet;
-    ctx.fillRect(FIELD.x + c.x, FIELD.y + c.y, c.w, c.h);
-    ctx.strokeStyle = PALETTE.carpetEdge;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(FIELD.x + c.x + 1, FIELD.y + c.y + 1, c.w - 2, c.h - 2);
-    ctx.strokeStyle = 'rgba(242, 193, 78, 0.35)';
-    ctx.lineWidth = 1;
+}
+
+function drawCarpet(ctx, room) {
+  const c = room.carpet;
+  ctx.fillStyle = C.carpet;
+  ctx.fillRect(X(c.x), Y(c.y), c.w, c.h);
+  ctx.strokeStyle = C.carpetEdge;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(X(c.x) + 4, Y(c.y) + 4, c.w - 8, c.h - 8);
+  ctx.strokeStyle = 'rgba(216,169,78,0.5)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(X(c.x) + 10, Y(c.y) + 10, c.w - 20, c.h - 20);
+  // Diamond motif down the middle.
+  ctx.fillStyle = 'rgba(216,169,78,0.65)';
+  for (let y = c.y + 34; y < c.y + c.h - 20; y += 62) {
+    const cx = X(c.x + c.w / 2), cy = Y(y);
     ctx.beginPath();
-    ctx.moveTo(FIELD.x + c.x + c.w / 2, FIELD.y + c.y + 6);
-    ctx.lineTo(FIELD.x + c.x + c.w / 2, FIELD.y + c.y + c.h - 6);
-    ctx.stroke();
+    ctx.moveTo(cx, cy - 9); ctx.lineTo(cx + 7, cy); ctx.lineTo(cx, cy + 9); ctx.lineTo(cx - 7, cy);
+    ctx.closePath(); ctx.fill();
   }
-  // Shadow zones: pools of dark where a cone barely reaches.
+}
+
+function drawShadows(ctx, room) {
   for (const s of room.shadows) {
-    ctx.fillStyle = 'rgba(8, 6, 14, 0.55)';
-    ctx.fillRect(FIELD.x + s.x, FIELD.y + s.y, s.w, s.h);
-    ctx.strokeStyle = 'rgba(120, 110, 160, 0.25)';
-    ctx.setLineDash([6, 5]);
-    ctx.strokeRect(FIELD.x + s.x + 0.5, FIELD.y + s.y + 0.5, s.w - 1, s.h - 1);
+    ctx.fillStyle = 'rgba(6,9,18,0.72)';
+    ctx.fillRect(X(s.x), Y(s.y), s.w, s.h);
+    ctx.strokeStyle = 'rgba(139,150,171,0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(X(s.x) + 0.5, Y(s.y) + 0.5, s.w, s.h);
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(150, 140, 190, 0.5)';
+    ctx.beginPath();
+    for (let d = -s.h; d < s.w; d += 18) {
+      ctx.moveTo(X(s.x + d), Y(s.y + s.h));
+      ctx.lineTo(X(s.x + d + s.h), Y(s.y));
+    }
+    ctx.strokeStyle = 'rgba(139,150,171,0.16)';
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(139,150,171,0.75)';
     ctx.font = 'italic 11px Georgia, serif';
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText('SHADOW', FIELD.x + s.x + 8, FIELD.y + s.y + 6);
+    ctx.fillText('SHADOW', X(s.x) + 8, Y(s.y) + 16);
   }
 }
 
-function drawWalls(ctx, room) {
-  ctx.strokeStyle = PALETTE.wallTop;
-  ctx.lineWidth = 3;
-  ctx.strokeRect(FIELD.x + 1.5, FIELD.y + 1.5, FIELD.w - 3, FIELD.h - 3);
-  for (const w of room.walls) {
-    ctx.fillStyle = PALETTE.wall;
-    ctx.fillRect(FIELD.x + w.x, FIELD.y + w.y, w.w, w.h);
-    ctx.fillStyle = PALETTE.wallTop;
-    ctx.fillRect(FIELD.x + w.x, FIELD.y + w.y, w.w, 5);
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(FIELD.x + w.x + 0.5, FIELD.y + w.y + 0.5, w.w - 1, w.h - 1);
-  }
-}
-
-function drawStatues(ctx, room) {
-  for (const s of room.statues) {
-    const x = FIELD.x + s.x;
-    const y = FIELD.y + s.y;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+function drawLampPools(ctx, room) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const l of room.lamps) {
+    const g = ctx.createRadialGradient(X(l.x), Y(l.y), 8, X(l.x), Y(l.y), l.r);
+    g.addColorStop(0, 'rgba(232,180,90,0.20)');
+    g.addColorStop(1, 'rgba(232,180,90,0)');
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.ellipse(x + 4, y + 6, s.r + 2, s.r * 0.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.statue;
-    ctx.beginPath();
-    ctx.arc(x, y, s.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#b5aea2';
-    ctx.beginPath();
-    ctx.arc(x, y, s.r * 0.55, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#6d675e';
-    ctx.beginPath();
-    ctx.arc(x, y - s.r * 0.15, s.r * 0.28, 0, Math.PI * 2);
+    ctx.arc(X(l.x), Y(l.y), l.r, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
 }
 
-function drawLoot(ctx, room, now) {
-  for (const l of room.loot) {
-    if (l.taken) continue;
-    const x = FIELD.x + l.x;
-    const y = FIELD.y + l.y;
-    const pulse = 0.35 + 0.2 * Math.sin(now * 3 + l.x);
-    ctx.fillStyle = `rgba(242, 193, 78, ${pulse})`;
-    ctx.beginPath();
-    ctx.arc(x, y, 30, 0, Math.PI * 2);
-    ctx.fill();
-    if (l.kind === 'painting') {
-      ctx.fillStyle = '#1d2a1a';
-      ctx.fillRect(x - 34, y - 22, 68, 44);
-      ctx.strokeStyle = PALETTE.gold;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x - 34, y - 22, 68, 44);
-      // A sunflower: dark centre, gold petals.
-      ctx.fillStyle = '#3a2a10';
+function drawPainting(ctx, p) {
+  ctx.fillStyle = '#3a2f1d';
+  ctx.fillRect(X(p.x) - 4, Y(p.y) - 4, p.w + 8, p.h + 8);
+  ctx.strokeStyle = C.gold;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(X(p.x) - 4, Y(p.y) - 4, p.w + 8, p.h + 8);
+  // The canvas inside: a tiny original artwork per type.
+  const cx = X(p.x), cy = Y(p.y);
+  if (p.art === 'sunflower') {
+    ctx.fillStyle = '#1d3a24'; ctx.fillRect(cx, cy, p.w, p.h);
+    ctx.fillStyle = '#d8a94e';
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
       ctx.beginPath();
-      ctx.arc(x, y, 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = PALETTE.goldBright;
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.ellipse(x + Math.cos(a) * 13, y + Math.sin(a) * 13, 6, 3.5, a, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (l.kind === 'crown') {
-      ctx.fillStyle = PALETTE.goldBright;
-      ctx.beginPath();
-      ctx.moveTo(x - 16, y + 10);
-      ctx.lineTo(x - 16, y - 6);
-      ctx.lineTo(x - 8, y + 2);
-      ctx.lineTo(x, y - 12);
-      ctx.lineTo(x + 8, y + 2);
-      ctx.lineTo(x + 16, y - 6);
-      ctx.lineTo(x + 16, y + 10);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#7a1f2b';
-      ctx.beginPath();
-      ctx.arc(x, y - 2, 3, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      // Gem in a glass case.
-      ctx.strokeStyle = 'rgba(220, 230, 255, 0.7)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x - 16, y - 16, 32, 32);
-      ctx.fillStyle = l.kind === 'gem' && l.id === 'emerald' ? '#2fae6a' : l.id === 'ruby' ? '#c83246' : '#3a7bd9';
-      ctx.beginPath();
-      ctx.moveTo(x, y - 10);
-      ctx.lineTo(x + 9, y);
-      ctx.lineTo(x, y + 10);
-      ctx.lineTo(x - 9, y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.beginPath();
-      ctx.moveTo(x, y - 10);
-      ctx.lineTo(x + 4, y - 2);
-      ctx.lineTo(x - 4, y - 2);
-      ctx.closePath();
+      ctx.ellipse(cx + p.w / 2 + Math.cos(a) * 14, cy + p.h / 2 + Math.sin(a) * 12, 9, 5, a, 0, Math.PI * 2);
       ctx.fill();
     }
-    if (l.locked) {
-      ctx.fillStyle = PALETTE.text;
-      ctx.font = 'bold 10px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('LOCKED — hold E', x, y + 34);
-    }
+    ctx.fillStyle = '#6b4a12';
+    ctx.beginPath(); ctx.arc(cx + p.w / 2, cy + p.h / 2, 9, 0, Math.PI * 2); ctx.fill();
+  } else if (p.art === 'portrait') {
+    ctx.fillStyle = '#2c2438'; ctx.fillRect(cx, cy, p.w, p.h);
+    ctx.fillStyle = '#c9a37e';
+    ctx.beginPath(); ctx.arc(cx + p.w / 2, cy + p.h / 2 - 6, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#4a2c3a';
+    ctx.beginPath(); ctx.ellipse(cx + p.w / 2, cy + p.h - 8, 26, 14, 0, Math.PI, 0); ctx.fill();
+  } else if (p.art === 'landscape') {
+    ctx.fillStyle = '#274b63'; ctx.fillRect(cx, cy, p.w, p.h / 2);
+    ctx.fillStyle = '#3f6b34'; ctx.fillRect(cx, cy + p.h / 2, p.w, p.h / 2);
+    ctx.fillStyle = '#e8d27a';
+    ctx.beginPath(); ctx.arc(cx + p.w - 22, cy + 16, 9, 0, Math.PI * 2); ctx.fill();
+  } else if (p.art === 'still') {
+    ctx.fillStyle = '#3a2a1a'; ctx.fillRect(cx, cy, p.w, p.h);
+    ctx.fillStyle = '#7a5a2a'; ctx.fillRect(cx, cy + p.h - 14, p.w, 14);
+    ctx.fillStyle = '#c9b458';
+    ctx.beginPath(); ctx.arc(cx + 30, cy + p.h - 26, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#8a9a4a';
+    ctx.beginPath(); ctx.arc(cx + 62, cy + p.h - 24, 8, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = '#20242e'; ctx.fillRect(cx, cy, p.w, p.h);
+    ctx.fillStyle = C.red; ctx.fillRect(cx + 12, cy + 10, 26, 26);
+    ctx.fillStyle = C.teal; ctx.fillRect(cx + 46, cy + 26, 30, 18);
+    ctx.fillStyle = C.gold; ctx.beginPath(); ctx.arc(cx + p.w - 24, cy + p.h - 20, 12, 0, Math.PI * 2); ctx.fill();
   }
+  ctx.fillStyle = 'rgba(232,226,210,0.85)';
+  ctx.font = '9px Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(p.title, X(p.x) + p.w / 2, Y(p.y) + p.h + 12);
+  ctx.textAlign = 'left';
 }
 
-function drawDoors(ctx, room, lootGot, lootTotal) {
-  if (room.door) {
-    const d = room.door;
-    const open = room.loot.every((l) => l.taken);
-    ctx.fillStyle = open ? PALETTE.exitGreen : '#5a5148';
-    ctx.fillRect(FIELD.x + d.x, FIELD.y + d.y, d.w, d.h);
-    ctx.fillStyle = PALETTE.text;
-    ctx.font = 'bold 11px Georgia, serif';
+function drawCase(ctx, c, state, room) {
+  const loot = room.loot.find((l) => l.id === c.loot);
+  const taken = loot && state.taken[loot.id];
+  ctx.fillStyle = 'rgba(120,170,200,0.16)';
+  ctx.fillRect(X(c.x), Y(c.y), c.w, c.h);
+  ctx.strokeStyle = 'rgba(180,220,240,0.75)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(X(c.x), Y(c.y), c.w, c.h);
+  ctx.strokeStyle = '#5a4630';
+  ctx.strokeRect(X(c.x) + 4, Y(c.y) + 4, c.w - 8, c.h - 8);
+  if (loot && !taken) {
+    const gx = X(c.x + c.w / 2), gy = Y(c.y + c.h / 2);
+    const col = loot.id === 'scarab' ? '#2fbf8f' : loot.id === 'idol' ? '#d64541' : loot.id === 'crown' ? C.gold : '#7fb2ff';
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy - 12); ctx.lineTo(gx + 10, gy); ctx.lineTo(gx, gy + 12); ctx.lineTo(gx - 10, gy);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath(); ctx.arc(gx - 3, gy - 4, 2.5, 0, Math.PI * 2); ctx.fill();
+  } else if (c.gem) {
+    const gx = X(c.x + c.w / 2), gy = Y(c.y + c.h / 2);
+    ctx.fillStyle = c.gem;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy - 12); ctx.lineTo(gx + 10, gy); ctx.lineTo(gx, gy + 12); ctx.lineTo(gx - 10, gy);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath(); ctx.arc(gx - 3, gy - 4, 2.5, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = 'rgba(139,150,171,0.8)';
+    ctx.font = '9px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(open ? 'DOOR OPEN — next room' : 'DOOR LOCKED — clear the room', FIELD.x + d.x + d.w / 2, FIELD.y + d.y + d.h / 2);
-  }
-  if (room.exit) {
-    const e = room.exit;
-    const open = lootGot >= lootTotal;
-    ctx.fillStyle = open ? PALETTE.exitGreen : '#5a5148';
-    ctx.fillRect(FIELD.x + e.x, FIELD.y + e.y, e.w, e.h);
-    ctx.fillStyle = '#0c0a12';
-    ctx.font = 'bold 12px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(open ? 'EXIT OPEN — RUN!' : 'EXIT — needs 5/5', FIELD.x + e.x + e.w / 2, FIELD.y + e.y + e.h / 2);
+    ctx.fillText('EMPTY', X(c.x) + c.w / 2, Y(c.y) + c.h / 2 + 3);
+    ctx.textAlign = 'left';
   }
 }
 
-function drawGuards(ctx, guards) {
-  for (const g of guards) {
-    const x = FIELD.x + g.x;
-    const y = FIELD.y + g.y;
-    const color =
-      g.state === 'alert' ? PALETTE.coneAlert : g.state === 'suspicious' ? PALETTE.coneSuspicious : PALETTE.coneCalm;
-    ctx.fillStyle = color;
-    conePath(ctx, x, y, g.dir, TUNING.guardHalfAngle, TUNING.guardRange);
-    ctx.fill();
-    // The guard: a dark uniform, a cap, a small lamp.
-    const bob = Math.sin(g.bob) * 1.5;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(x + 3, y + 8, 12, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = g.state === 'alert' ? PALETTE.guardAlert : PALETTE.guard;
-    ctx.beginPath();
-    ctx.arc(x, y + bob * 0.3, 13, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#20242e';
-    ctx.beginPath();
-    ctx.arc(x, y - 4 + bob * 0.3, 7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.gold;
-    ctx.fillRect(x - 7, y - 11 + bob * 0.3, 14, 2.5);
-    // Detection ring above the head.
-    if (g.detect > 2) {
-      ctx.strokeStyle = g.state === 'alert' ? PALETTE.alarmHigh : PALETTE.goldBright;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(x, y, 19, -Math.PI / 2, -Math.PI / 2 + (g.detect / 100) * Math.PI * 2);
-      ctx.stroke();
-    }
-    if (g.state !== 'calm') {
-      ctx.fillStyle = g.state === 'alert' ? '#ff5a4a' : PALETTE.goldBright;
-      ctx.font = 'bold 16px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(g.state === 'alert' ? '!' : '?', x, y - 24);
-    }
+function drawStatue(ctx, s) {
+  ctx.fillStyle = '#4a4238';
+  ctx.fillRect(X(s.x) - 16, Y(s.y) + 8, 32, 12);
+  ctx.fillStyle = '#8d8578';
+  if (s.kind === 'bust') {
+    ctx.beginPath(); ctx.arc(X(s.x), Y(s.y) - 2, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(X(s.x), Y(s.y) + 12, 15, 9, 0, Math.PI, 0); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.ellipse(X(s.x), Y(s.y), 17, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(X(s.x) + 12, Y(s.y) - 8, 6, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(X(s.x), Y(s.y), s.r, 0, Math.PI * 2); ctx.stroke();
+}
+
+function drawPlant(ctx, p) {
+  ctx.fillStyle = '#6b4423';
+  ctx.beginPath();
+  ctx.moveTo(X(p.x) - 12, Y(p.y) + 4); ctx.lineTo(X(p.x) + 12, Y(p.y) + 4);
+  ctx.lineTo(X(p.x) + 8, Y(p.y) + 16); ctx.lineTo(X(p.x) - 8, Y(p.y) + 16);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2f6b34';
+  for (const [dx, dy, r] of [[-8, -8, 9], [8, -10, 9], [0, -16, 10]]) {
+    ctx.beginPath(); ctx.arc(X(p.x + dx), Y(p.y + dy), r, 0, Math.PI * 2); ctx.fill();
   }
 }
 
-function drawCameras(ctx, cameras, now) {
-  for (const c of cameras) {
-    const x = FIELD.x + c.x;
-    const y = FIELD.y + c.y;
-    const ang = cameraAngle(c, now);
-    const blind = c.blindLeft > 0;
-    ctx.fillStyle = blind ? PALETTE.cameraBlind : PALETTE.cameraArc;
-    conePath(ctx, x, y, ang, TUNING.cameraHalfAngle, c.range);
-    ctx.fill();
-    // Wall mount + lens.
-    ctx.fillStyle = '#2c2836';
-    ctx.fillRect(x - 8, y - 8, 16, 16);
-    ctx.fillStyle = blind ? '#777' : '#e04030';
-    ctx.beginPath();
-    ctx.arc(x + Math.cos(ang) * 8, y + Math.sin(ang) * 8, 4.5, 0, Math.PI * 2);
-    ctx.fill();
-    if (blind) {
-      ctx.fillStyle = '#cfc8ba';
-      ctx.font = 'bold 11px Georgia, serif';
-      ctx.textAlign = 'center';
-      // Below the mount: the callout for a blind camera sits above it.
-      ctx.fillText('BLIND', x, y + 22);
-    }
+function drawSunflower(ctx, x, y, t, taken) {
+  // The prize: bobbing, glowing gold, on its pedestal.
+  const bob = taken ? 0 : Math.sin(t * 2) * 3;
+  const gy = Y(y) + bob;
+  if (!taken) {
+    const g = ctx.createRadialGradient(X(x), gy, 4, X(x), gy, 46);
+    g.addColorStop(0, 'rgba(216,169,78,0.5)');
+    g.addColorStop(1, 'rgba(216,169,78,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(X(x), gy, 46, 0, Math.PI * 2); ctx.fill();
   }
+  if (taken) return;
+  ctx.fillStyle = C.gold;
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(X(x) + Math.cos(a) * 13, gy + Math.sin(a) * 11, 9, 5, a, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#6b4a12';
+  ctx.beginPath(); ctx.arc(X(x), gy, 9, 0, Math.PI * 2); ctx.fill();
 }
 
-function drawPlayer(ctx, p, room) {
-  const x = FIELD.x + p.x;
-  const y = FIELD.y + p.y;
-  // Noise ring while loud on carpet.
-  if (p.noise > 0.6 && p.moving) {
-    ctx.strokeStyle = `rgba(232, 120, 40, ${0.5 * (1 - p.noisePulse)})`;
-    ctx.lineWidth = 2;
+function drawLasers(ctx, room, live, t) {
+  if (!room.lasers.length) return;
+  const pulse = 0.55 + 0.35 * Math.sin(t * 4);
+  ctx.save();
+  ctx.shadowColor = live ? '#ff3b30' : '#888888';
+  ctx.shadowBlur = live ? 12 : 8;
+  ctx.strokeStyle = live ? `rgba(255,59,48,${pulse})` : 'rgba(150,150,150,0.5)';
+  ctx.lineWidth = live ? 3.5 : 2.5;
+  for (const b of room.lasers) {
     ctx.beginPath();
-    ctx.arc(x, y, 20 + p.noisePulse * 90, 0, Math.PI * 2);
+    ctx.moveTo(X(b.x1), Y(b.y1)); ctx.lineTo(X(b.x2), Y(b.y2));
     ctx.stroke();
   }
-  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.restore();
+  ctx.fillStyle = live ? '#ff3b30' : '#999';
+  for (const b of room.lasers) {
+    ctx.beginPath(); ctx.arc(X(b.x1), Y(b.y1), 3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawExitPad(ctx, room, state) {
+  const pad = room.exitPad;
+  if (!pad) return;
+  const open = state.taken.sunflower;
+  const pulse = 0.5 + 0.3 * Math.sin(state.time * 3);
+  if (open) {
+    const g = ctx.createRadialGradient(X(pad.x + pad.w / 2), Y(pad.y + pad.h / 2), 4, X(pad.x + pad.w / 2), Y(pad.y + pad.h / 2), 80);
+    g.addColorStop(0, `rgba(63,184,166,${pulse})`);
+    g.addColorStop(1, 'rgba(63,184,166,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(X(pad.x + pad.w / 2), Y(pad.y + pad.h / 2), 80, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = open ? 'rgba(63,184,166,0.25)' : 'rgba(90,100,120,0.25)';
+  ctx.fillRect(X(pad.x), Y(pad.y), pad.w, pad.h);
+  ctx.strokeStyle = open ? C.teal : '#5a6478';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(X(pad.x), Y(pad.y), pad.w, pad.h);
+  ctx.fillStyle = open ? '#7df0dd' : '#8b96ab';
+  ctx.font = 'bold 13px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(open ? 'EXIT OPEN — RUN' : 'EXIT — NEED THE SUNFLOWER', X(pad.x + pad.w / 2), Y(pad.y) - 8);
+  ctx.textAlign = 'left';
+}
+
+function drawEscapeRoute(ctx, state, room) {
+  if (!state.taken.sunflower || !room.exitPad) return;
+  const p = state.player;
+  const tx = room.exitPad.x + room.exitPad.w / 2;
+  const ty = room.exitPad.y + room.exitPad.h / 2;
+  ctx.save();
+  ctx.setLineDash([8, 7]);
+  ctx.strokeStyle = '#37d67a';
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.ellipse(x + 3, y + 9, 12, 5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Cloaked thief with a gold-trimmed hood.
-  ctx.fillStyle = PALETTE.player;
+  ctx.moveTo(X(p.x), Y(p.y));
+  ctx.lineTo(X(tx), Y(ty));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#37d67a';
+  const a = Math.atan2(ty - p.y, tx - p.x);
   ctx.beginPath();
-  ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.moveTo(X(tx), Y(ty));
+  ctx.lineTo(X(tx) - Math.cos(a - 0.4) * 14, Y(ty) - Math.sin(a - 0.4) * 14);
+  ctx.lineTo(X(tx) - Math.cos(a + 0.4) * 14, Y(ty) - Math.sin(a + 0.4) * 14);
+  ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = PALETTE.playerTrim;
+  ctx.restore();
+}
+
+function drawRoutes(ctx, state) {
+  for (const g of state.guards) {
+    const wps = g.def.waypoints;
+    ctx.save();
+    ctx.setLineDash([5, 6]);
+    ctx.strokeStyle = 'rgba(232,163,61,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    wps.forEach((w, i) => {
+      if (i === 0) ctx.moveTo(X(w.x), Y(w.y));
+      else ctx.lineTo(X(w.x), Y(w.y));
+    });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    wps.forEach((w, i) => {
+      ctx.fillStyle = i === g.wp ? C.gold : 'rgba(232,163,61,0.8)';
+      ctx.beginPath(); ctx.arc(X(w.x), Y(w.y), 3.5, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.restore();
+  }
+}
+
+function wedge(ctx, x, y, angle, half, r, fill) {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(X(x), Y(y));
+  ctx.arc(X(x), Y(y), r, angle - half, angle + half);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCones(ctx, state) {
+  for (const g of state.guards) {
+    const col = g.state === 'ALERT' ? '214,69,65' : g.state === 'SUSPICIOUS' || g.state === 'SEARCH' ? '232,163,61' : '232,163,61';
+    const a = g.state === 'ALERT' ? 0.26 : g.state === 'SUSPICIOUS' ? 0.2 : 0.13;
+    wedge(ctx, g.x, g.y, g.facing, Math.PI / 2, 120, `rgba(${col},0.05)`); // faint peripheral
+    wedge(ctx, g.x, g.y, g.facing, Math.PI / 6, 215, `rgba(${col},${a})`); // focused 60°
+  }
+  for (const cam of state.cameras) {
+    const blind = cam.blind > 0;
+    wedge(ctx, cam.x, cam.y, cam.angle, Math.PI / 6, 270, blind ? 'rgba(150,150,150,0.10)' : 'rgba(214,69,65,0.16)');
+    ctx.strokeStyle = blind ? 'rgba(150,150,150,0.5)' : 'rgba(214,69,65,0.5)';
+    ctx.lineWidth = 1;
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(X(cam.x), Y(cam.y));
+      ctx.lineTo(X(cam.x + Math.cos(cam.angle + s * Math.PI / 6) * 270), Y(cam.y + Math.sin(cam.angle + s * Math.PI / 6) * 270));
+      ctx.stroke();
+    }
+  }
+}
+
+function drawNoises(ctx, state) {
+  for (const n of state.noises) {
+    ctx.strokeStyle = `rgba(232,226,210,${Math.max(0, 0.8 - n.age)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(X(n.x), Y(n.y), n.r, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+function drawSmoke(ctx, state) {
+  for (const s of state.smokes) {
+    const g = ctx.createRadialGradient(X(s.x), Y(s.y), 4, X(s.x), Y(s.y), s.r);
+    g.addColorStop(0, 'rgba(170,180,195,0.55)');
+    g.addColorStop(1, 'rgba(170,180,195,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(X(s.x), Y(s.y), s.r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function rim(ctx, x, y, r, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(X(x), Y(y), r, 0, Math.PI * 2); ctx.stroke();
+}
+
+function drawGuard(ctx, g) {
+  const x = X(g.x), y = Y(g.y);
+  const col = g.state === 'ALERT' ? '#d64541' : g.state === 'SUSPICIOUS' || g.state === 'SEARCH' ? '#e8a33d' : '#7fa8c9';
+  // Body + 2px rim.
+  ctx.fillStyle = '#2b3a55';
+  ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI * 2); ctx.fill();
+  rim(ctx, g.x, g.y, 13, col);
+  // Cap (half circle toward facing) + facing tick.
+  ctx.fillStyle = '#1a2438';
+  ctx.beginPath();
+  ctx.arc(x, y, 13, g.facing - Math.PI / 2, g.facing + Math.PI / 2);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = C.gold;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + Math.cos(g.facing) * 18, y + Math.sin(g.facing) * 18);
   ctx.stroke();
-  ctx.fillStyle = '#e8e0cf';
+  // Detection pie above the head, filling clockwise.
+  const py = y - 30;
+  ctx.fillStyle = 'rgba(10,15,28,0.9)';
+  ctx.beginPath(); ctx.arc(x, py, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = g.meter >= 85 ? C.red : g.meter >= 40 ? C.amber : C.teal;
   ctx.beginPath();
-  ctx.arc(x + Math.cos(p.dir) * 5, y + Math.sin(p.dir) * 5, 4.5, 0, Math.PI * 2);
-  ctx.fill();
-  // Aim line toward the mouse while a pebble is ready.
-  // Lockpick progress ring.
-  if (p.interact) {
-    ctx.strokeStyle = PALETTE.goldBright;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(x, y, 20, -Math.PI / 2, -Math.PI / 2 + p.interact.progress * Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = PALETTE.text;
-    ctx.font = 'bold 11px Georgia, serif';
+  ctx.moveTo(x, py);
+  ctx.arc(x, py, 7, -Math.PI / 2, -Math.PI / 2 + (g.meter / 100) * Math.PI * 2);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#3a4a68';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x, py, 7, 0, Math.PI * 2); ctx.stroke();
+  // "?" suspicious, "!" alert.
+  if (g.state === 'SUSPICIOUS' || g.state === 'SEARCH') {
+    ctx.fillStyle = C.amber;
+    ctx.font = 'bold 15px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(p.interact.loot.kind === 'painting' ? 'Cutting it down…' : 'Picking the lock…', x, y - 30);
+    ctx.fillText('?', x, py - 12);
+  } else if (g.state === 'ALERT') {
+    ctx.fillStyle = C.red;
+    ctx.font = 'bold 15px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('!', x, py - 12);
   }
-}
-
-function drawToolsFx(ctx, tools) {
-  for (const s of tools.smokes) {
-    const x = FIELD.x + s.x;
-    const y = FIELD.y + s.y;
-    const a = Math.min(1, s.left / 2);
-    ctx.fillStyle = `rgba(200, 200, 210, ${0.35 * a})`;
-    ctx.beginPath();
-    ctx.arc(x, y, TUNING.smokeRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = `rgba(220, 220, 230, ${0.25 * a})`;
-    ctx.beginPath();
-    ctx.arc(x - 30, y - 18, 34, 0, Math.PI * 2);
-    ctx.arc(x + 34, y + 14, 30, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const p = tools.pebble;
-  if (p) {
-    const x = FIELD.x + p.x;
-    const y = FIELD.y + p.y;
-    if (!p.landed) {
-      ctx.fillStyle = '#8f887a';
-      ctx.beginPath();
-      ctx.arc(x, y - 10, 4, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.strokeStyle = `rgba(232, 193, 78, ${Math.max(0, 1 - p.ring / 1.6)})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(x, y, 8 + p.ring * 60, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
-}
-
-function overlay(ctx, title, lines, accent) {
-  ctx.fillStyle = 'rgba(8, 6, 14, 0.82)';
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  // Name tag.
+  ctx.fillStyle = '#e8e2d2';
+  ctx.font = 'bold 10px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = accent;
-  ctx.font = 'bold 44px Georgia, serif';
-  ctx.fillText(title, CANVAS_W / 2, 240);
-  ctx.fillStyle = PALETTE.text;
-  ctx.font = '17px Georgia, serif';
-  let y = 300;
-  for (const l of lines) {
-    ctx.fillText(l, CANVAS_W / 2, y);
-    y += 30;
+  ctx.fillText(g.def.short, x, y - 44);
+  ctx.textAlign = 'left';
+}
+
+function drawPlayer(ctx, state) {
+  const p = state.player;
+  const x = X(p.x), y = Y(p.y);
+  if (state.taken.sunflower) {
+    const g = ctx.createRadialGradient(x, y, 4, x, y, 34);
+    g.addColorStop(0, 'rgba(216,169,78,0.5)');
+    g.addColorStop(1, 'rgba(216,169,78,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, 34, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#16121f';
+  ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.fill();
+  rim(ctx, p.x, p.y, 12, C.teal);
+  // Hood point toward facing + gold trim.
+  ctx.fillStyle = '#16121f';
+  ctx.beginPath();
+  ctx.moveTo(x + Math.cos(p.dir) * 18, y + Math.sin(p.dir) * 18);
+  ctx.lineTo(x + Math.cos(p.dir + 2.4) * 10, y + Math.sin(p.dir + 2.4) * 10);
+  ctx.lineTo(x + Math.cos(p.dir - 2.4) * 10, y + Math.sin(p.dir - 2.4) * 10);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = C.gold;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x, y, 8, p.dir - 1.1, p.dir + 1.1); ctx.stroke();
+  if (state.taken.sunflower && !state.stageSunflower) {
+    // The prize rides on Sable's back.
+    ctx.fillStyle = C.gold;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.ellipse(x + Math.cos(a) * 7, y - 20 + Math.sin(a) * 6, 4.5, 2.5, a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#6b4a12';
+    ctx.beginPath(); ctx.arc(x, y - 20, 4.5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#e8e2d2';
+  ctx.font = 'bold 10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('SABLE', x, y - 22);
+  ctx.textAlign = 'left';
+}
+
+function drawCamera(ctx, cam) {
+  const x = X(cam.x), y = Y(cam.y);
+  ctx.fillStyle = '#3a4356';
+  ctx.fillRect(x - 9, y - 6, 18, 12);
+  ctx.fillStyle = cam.blind > 0 ? '#888' : C.red;
+  ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+  if (cam.blind > 0) {
+    ctx.fillStyle = '#c9c9c9';
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('BLIND', x, y - 12);
+    ctx.textAlign = 'left';
   }
 }
 
-export function drawGame(ctx, s) {
-  ctx.fillStyle = PALETTE.bg;
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  const room = s.room;
-  const now = s.now;
-
-  drawFloor(ctx, room);
-  drawWalls(ctx, room);
-  drawStatues(ctx, room);
-  drawLoot(ctx, room, now);
-  drawDoors(ctx, room, s.lootGot, s.lootTotal);
-  drawGuards(ctx, s.guards);
-  drawCameras(ctx, s.cameras, now);
-  drawToolsFx(ctx, s.tools);
-  drawPlayer(ctx, s.player, room);
-
-  drawTopBar(ctx, s);
-  drawPanel(ctx, s);
-  drawBottomBar(ctx, s);
-  if (s.callouts) drawCallouts(ctx, s.callouts);
-
-  if (s.mode === 'title') {
-    overlay(ctx, 'GILDED SHADOWS', [
-      'A night at the museum. One painting. Three rooms. No witnesses.',
-      'Sneak past the guards, mind the cameras, steal The Midnight Sunflower,',
-      'and slip out the service exit before the alarm fills.',
-      '',
-      'WASD move · SHIFT sneak · Click throw a pebble · E (hold) steal · Q smoke',
-      '',
-      'Click anywhere to begin the heist.',
-    ], PALETTE.goldBright);
-  } else if (s.mode === 'caught') {
-    overlay(ctx, 'CAUGHT!', [
-      s.caughtReason ?? 'A guard got you.',
-      '',
-      `Loot carried: ${s.lootGot}/${s.lootTotal}  ·  Time: ${Math.floor(s.timer / 60)}:${String(Math.floor(s.timer % 60)).padStart(2, '0')}`,
-      'The room resets. The Sunflower is still waiting.',
-      '',
-      'Press R to retry the room.',
-    ], '#ff5a4a');
-  } else if (s.mode === 'win') {
-    overlay(ctx, s.ghost ? 'GHOST — CLEAN GETAWAY' : 'THE SUNFLOWER IS YOURS', [
-      `Time ${Math.floor(s.timer / 60)}:${String(Math.floor(s.timer % 60)).padStart(2, '0')}  ·  Loot ${s.lootGot}/${s.lootTotal}`,
-      s.ghost
-        ? 'Never spotted. Not once. The museum never knew you were there.'
-        : 'Spotted along the way — but the painting still hangs in your hideout.',
-      '',
-      'Press R to run it again, cleaner this time.',
-    ], PALETTE.goldBright);
-  } else if (s.mode === 'paused') {
-    overlay(ctx, 'PAUSED', [
-      'The guards wait. The cameras keep sweeping.',
-      '',
-      'ESC resume · R restart room · H field notes',
-    ], PALETTE.text);
+function drawDoors(ctx, room) {
+  ctx.fillStyle = C.gold;
+  ctx.font = 'bold 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  if (room.doorNorth) {
+    ctx.fillText('GALLERY  ↑', X(507), Y(4) + 12);
   }
+  if (room.doorSouth) {
+    ctx.fillText('↓  BACK', X(507), Y(592) - 4);
+  }
+  ctx.textAlign = 'left';
+}
 
-  if (s.showNotes) {
-    ctx.fillStyle = 'rgba(12, 10, 18, 0.94)';
-    ctx.fillRect(240, 120, 800, 460);
-    ctx.strokeStyle = PALETTE.gold;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(241, 121, 798, 458);
+export function drawGame(ctx, state) {
+  const room = state.rooms[state.room];
+  // Playfield frame.
+  ctx.fillStyle = '#05080f';
+  ctx.fillRect(PLAY.x, PLAY.y, PLAY.w, PLAY.h);
+  drawFloor(ctx);
+  drawCarpet(ctx, room);
+  drawShadows(ctx, room);
+  drawLampPools(ctx, room);
+  for (const p of room.paintings) drawPainting(ctx, p);
+  for (const c of room.cases) drawCase(ctx, c, state, room);
+  for (const s of room.statues) drawStatue(ctx, s);
+  for (const p of room.plants) drawPlant(ctx, p);
+  if (room.pedestal) {
+    ctx.fillStyle = '#4a4238';
+    ctx.fillRect(X(room.pedestal.x) - 22, Y(room.pedestal.y) - 8, 44, 16);
+    drawSunflower(ctx, room.pedestal.x, room.pedestal.y - 14, state.time, state.taken.sunflower && !state.stageSunflower);
+  }
+  drawLasers(ctx, room, state.lasersLive, state.time);
+  drawExitPad(ctx, room, state);
+  drawEscapeRoute(ctx, state, room);
+  drawRoutes(ctx, state);
+  drawCones(ctx, state);
+  drawNoises(ctx, state);
+  drawSmoke(ctx, state);
+  for (const cam of state.cameras) drawCamera(ctx, cam);
+  for (const g of state.guards) drawGuard(ctx, g);
+  drawPlayer(ctx, state);
+  // Pick prompt / hold-E ring.
+  if (state.pickTarget && state.mode === 'play') {
+    const t = state.pickTarget;
+    ctx.fillStyle = C.gold;
+    ctx.font = 'bold 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HOLD E — ' + t.label, X(state.player.x), Y(state.player.y) - 30);
+    ctx.strokeStyle = C.gold;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(X(state.player.x), Y(state.player.y), 20, -Math.PI / 2, -Math.PI / 2 + state.pickT * Math.PI * 2);
+    ctx.stroke();
     ctx.textAlign = 'left';
-    ctx.fillStyle = PALETTE.goldBright;
-    ctx.font = 'bold 22px Georgia, serif';
-    ctx.fillText('FIELD NOTES — the crew’s plan', 280, 170);
-    ctx.fillStyle = PALETTE.text;
-    ctx.font = '15px Georgia, serif';
-    const notes = [
-      '• The Sunflower hangs in the Atrium, north wall. Cut it down with E —',
-      '  it takes a moment, and the guard on the carpet hears everything.',
-      '• SHADOW hides you: a cone barely reaches into the dark. LIT floor is',
-      '  the opposite — a camera sees you from across the room.',
-      '• Red carpet is LOUD when you walk it. Sneak, or go around.',
-      '• A pebble (click) sends the nearest guard to investigate the noise.',
-      '• Smoke (Q) blinds cameras and guards for a few seconds. You only',
-      '  carry two — save one for the Vault.',
-      '• Locked cases need a lockpick (hold E). It rattles sometimes.',
-      '• The exit opens only at 5/5 loot. GHOST means never spotted at all.',
-    ];
-    let y = 210;
-    for (const n of notes) {
-      ctx.fillText(n, 280, y);
-      y += 30;
-    }
-    ctx.fillStyle = PALETTE.textDim;
-    ctx.font = 'italic 14px Georgia, serif';
-    ctx.fillText('Press H to close.', 280, 540);
+  }
+  drawDoors(ctx, room);
+  // Alarm palette flip: the whole room washes red while ALARMED.
+  if (state.alarm >= 70) {
+    ctx.fillStyle = `rgba(180,20,20,${((state.alarm - 70) / 30) * 0.16})`;
+    ctx.fillRect(PLAY.x, PLAY.y, PLAY.w, PLAY.h);
+  }
+  ctx.strokeStyle = C.panelEdge;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(PLAY.x + 1, PLAY.y + 1, PLAY.w - 2, PLAY.h - 2);
+}
+
+export function drawFrame(ctx, state) {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, 1280, 720);
+  if (state.mode === 'title') {
+    drawPlan(ctx, state);
+    return;
+  }
+  drawGame(ctx, state);
+  const room = state.rooms[state.room];
+  drawTopBar(ctx, state, room);
+  drawPanel(ctx, state, room);
+  drawDialog(ctx, state);
+  drawCallouts(ctx, state);
+  if (state.mode === 'win') drawWin(ctx, state);
+  if (state.mode === 'caught') drawCaught(ctx, state);
+  if (state.paused) {
+    ctx.fillStyle = 'rgba(8,12,22,0.7)';
+    ctx.fillRect(0, 0, 1280, 720);
+    ctx.fillStyle = C.gold;
+    ctx.font = 'bold 40px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', 640, 360);
+    ctx.textAlign = 'left';
   }
 }

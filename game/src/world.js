@@ -1,204 +1,229 @@
-// GILDED SHADOWS — the museum: three rooms, their walls, cover, loot,
-// patrols, cameras and doors. All coordinates are field-local: x 0..1018,
-// y 0..592 inside the playfield. The renderer adds the field offset.
+// GILDED SHADOWS — the museum. One job: the three rooms, furnished.
+// Coordinates are playfield-local (0..1014, 0..596). Walls block movement;
+// sight blockers (statues, pedestals, wall segments) also block vision cones.
+import { mulberry32 } from './random.js';
 
-import { FIELD } from './config.js';
-
-// --- geometry helpers (shared by guards, cameras and the player) ----------
-
-export function pointInRect(px, py, r) {
-  return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+function wall(x, y, w, h, sight = true) {
+  return { x, y, w, h, sight };
+}
+function painting(x, y, w, h, title, art) {
+  return { x, y, w, h, title, art };
+}
+function guardDef(name, short, role, waypoints, wait, speed) {
+  return { name, short, role, waypoints, wait, speed };
 }
 
-function segHitsRect(x1, y1, x2, y2, r) {
+export function buildRooms() {
+  const rng = mulberry32(20261122);
+  void rng;
+
+  const atrium = {
+    name: 'The Marble Atrium',
+    sub: 'Wide patrols, long pauses, generous gaps — read the room first',
+    carpet: { x: 460, y: 120, w: 94, h: 420 },
+    exitPad: { x: 460, y: 540, w: 94, h: 44 },
+    doorNorth: { x: 470, y: 0, w: 74, h: 10 },
+    doorSouth: null,
+    walls: [
+      wall(180, 330, 120, 14, false), // low bench, blocks feet not sight
+      wall(714, 330, 120, 14, false),
+      wall(430, 120, 30, 60), // plinth under the north wall
+      wall(554, 120, 30, 60),
+    ],
+    paintings: [
+      painting(110, 20, 116, 72, 'Sunflowers at Dusk', 'sunflower'),
+      painting(449, 20, 116, 72, 'The Duchess', 'portrait'),
+      painting(788, 20, 116, 72, 'Harbor in Gold', 'landscape'),
+      painting(940, 220, 62, 96, 'Abstract No. 9', 'abstract'),
+    ],
+    cases: [
+      { x: 36, y: 260, w: 56, h: 52, loot: 'scarab' },
+    ],
+    statues: [
+      { x: 250, y: 180, r: 26, kind: 'bust' },
+      { x: 764, y: 180, r: 26, kind: 'horse' },
+    ],
+    plants: [
+      { x: 60, y: 60 }, { x: 954, y: 60 }, { x: 60, y: 536 }, { x: 954, y: 536 },
+    ],
+    lamps: [
+      { x: 300, y: 90, r: 95 }, { x: 714, y: 90, r: 95 }, { x: 507, y: 420, r: 85 },
+    ],
+    shadows: [
+      { x: 30, y: 430, w: 170, h: 130 },
+      { x: 820, y: 60, w: 164, h: 120 },
+    ],
+    loot: [
+      { id: 'scarab', x: 64, y: 286, locked: true },
+    ],
+    guards: [
+      guardDef('SGT. MARLOW', 'MARLOW', 'Atrium patrol', [{ x: 300, y: 300 }, { x: 714, y: 300 }], 2.5, 46),
+      guardDef('NIGHT WATCHMAN KELL', 'KELL', 'East corridor', [{ x: 880, y: 120 }, { x: 880, y: 480 }], 2.0, 55),
+    ],
+    cameras: [
+      { x: 968, y: 70, base: -2.4, sweep: 0.9, speed: 0.5 },
+    ],
+    lasers: [],
+    pedestal: null,
+    playerStart: { x: 507, y: 500 },
+  };
+
+  const gallery = {
+    name: 'The Gilded Gallery',
+    sub: 'Officer Dara walks the long rectangle — time the corners',
+    carpet: { x: 120, y: 270, w: 774, h: 56 },
+    exitPad: null,
+    doorNorth: { x: 470, y: 0, w: 74, h: 10 },
+    doorSouth: { x: 470, y: 586, w: 74, h: 10 },
+    walls: [
+      wall(400, 130, 214, 14, false),
+      wall(400, 452, 214, 14, false),
+    ],
+    paintings: [
+      painting(180, 20, 116, 72, 'The Red Room', 'abstract'),
+      painting(718, 20, 116, 72, 'Two Sailors', 'portrait'),
+      painting(180, 512, 116, 72, 'Winter Field', 'landscape'),
+      painting(718, 512, 116, 72, 'Lemons', 'still'),
+    ],
+    cases: [
+      { x: 60, y: 140, w: 56, h: 52, loot: 'idol' },
+      { x: 898, y: 400, w: 56, h: 52, loot: 'crown' },
+    ],
+    statues: [
+      { x: 507, y: 140, r: 26, kind: 'bust' },
+      { x: 507, y: 450, r: 26, kind: 'horse' },
+    ],
+    plants: [
+      { x: 60, y: 520 }, { x: 954, y: 80 },
+    ],
+    lamps: [
+      { x: 250, y: 300, r: 85 }, { x: 764, y: 300, r: 85 },
+    ],
+    shadows: [
+      { x: 30, y: 60, w: 160, h: 110 },
+      { x: 830, y: 430, w: 154, h: 120 },
+    ],
+    loot: [
+      { id: 'idol', x: 88, y: 166, locked: true },
+      { id: 'crown', x: 926, y: 426, locked: true },
+    ],
+    guards: [
+      guardDef('OFFICER DARA', 'DARA', 'Gallery rectangle', [
+        { x: 200, y: 150 }, { x: 814, y: 150 }, { x: 814, y: 450 }, { x: 200, y: 450 },
+      ], 1.8, 62),
+    ],
+    cameras: [
+      { x: 46, y: 70, base: -1.2, sweep: 0.8, speed: 0.6 },
+    ],
+    lasers: [],
+    pedestal: null,
+    playerStart: { x: 507, y: 540 },
+  };
+
+  const vault = {
+    name: 'The Vault Below',
+    sub: 'The Sunflower bobs in gold light, ringed by red lasers',
+    carpet: { x: 460, y: 400, w: 94, h: 140 },
+    exitPad: null,
+    doorNorth: null,
+    doorSouth: { x: 470, y: 586, w: 74, h: 10 },
+    walls: [
+      wall(180, 300, 90, 14, false),
+      wall(744, 300, 90, 14, false),
+    ],
+    paintings: [
+      painting(120, 12, 116, 72, 'Night Watch, Study', 'portrait'),
+      painting(778, 12, 116, 72, 'Gold Leaf', 'abstract'),
+    ],
+    cases: [
+      { x: 898, y: 250, w: 56, h: 52, loot: 'sapphires' },
+      { x: 36, y: 150, w: 56, h: 52, loot: null, gem: '#e8e0c8' },
+      { x: 928, y: 100, w: 56, h: 52, loot: null, gem: '#8a7f6a' },
+    ],
+    statues: [
+      { x: 300, y: 150, r: 26, kind: 'bust' },
+      { x: 714, y: 150, r: 26, kind: 'horse' },
+      { x: 300, y: 440, r: 26, kind: 'bust' },
+      { x: 714, y: 440, r: 26, kind: 'horse' },
+    ],
+    plants: [
+      { x: 60, y: 60 }, { x: 954, y: 536 },
+    ],
+    lamps: [
+      { x: 507, y: 90, r: 95 },
+      { x: 250, y: 470, r: 85 },
+      { x: 764, y: 470, r: 85 },
+    ],
+    shadows: [
+      { x: 30, y: 430, w: 170, h: 130 },
+      { x: 820, y: 60, w: 164, h: 120 },
+    ],
+    loot: [
+      { id: 'sunflower', x: 507, y: 280, locked: true, pedestal: true },
+      { id: 'sapphires', x: 926, y: 276, locked: true },
+    ],
+    guards: [
+      guardDef('CURATOR VOSS', 'VOSS', 'Vault circuit', [
+        { x: 350, y: 150 }, { x: 664, y: 150 }, { x: 664, y: 420 }, { x: 350, y: 420 },
+      ], 1.5, 68),
+    ],
+    cameras: [
+      { x: 60, y: 70, base: -1.0, sweep: 0.9, speed: 0.7 },
+      { x: 954, y: 520, base: 2.2, sweep: 0.9, speed: 0.55 },
+    ],
+    lasers: [
+      { x1: 420, y1: 200, x2: 594, y2: 200 },
+      { x1: 594, y1: 200, x2: 594, y2: 360 },
+      { x1: 594, y1: 360, x2: 420, y2: 360 },
+      { x1: 420, y1: 360, x2: 420, y2: 200 },
+    ],
+    pedestal: { x: 507, y: 280 },
+    playerStart: { x: 507, y: 540 },
+  };
+
+  return [atrium, gallery, vault];
+}
+
+// Segment (x1,y1)-(x2,y2) blocked by any sight-blocking rect or statue?
+export function sightBlocked(x1, y1, x2, y2, room) {
+  for (const w of room.walls) {
+    if (!w.sight) continue;
+    if (segHitsRect(x1, y1, x2, y2, w)) return true;
+  }
+  for (const s of room.statues) {
+    if (segHitsCircle(x1, y1, x2, y2, s.x, s.y, s.r)) return true;
+  }
+  return false;
+}
+
+export function segHitsRect(x1, y1, x2, y2, r) {
   // Slab test: does the segment cross the rectangle?
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  let tmin = 0;
-  let tmax = 1;
-  for (const [p, d, lo, hi] of [
-    [x1, dx, r.x, r.x + r.w],
-    [y1, dy, r.y, r.y + r.h],
-  ]) {
-    if (Math.abs(d) < 1e-9) {
-      if (p < lo || p > hi) return false;
-    } else {
-      let t1 = (lo - p) / d;
-      let t2 = (hi - p) / d;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) return false;
-    }
+  const dx = x2 - x1, dy = y2 - y1;
+  let t0 = 0, t1 = 1;
+  const axes = [[-dx, x1 - r.x], [dx, r.x + r.w - x1], [-dy, y1 - r.y], [dy, r.y + r.h - y1]];
+  for (const [p, q] of axes) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else { if (t < t0) return false; if (t < t1) t1 = t; }
   }
   return true;
 }
 
-function segHitsCircle(x1, y1, x2, y2, c) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
+export function segHitsCircle(x1, y1, x2, y2, cx, cy, r) {
+  const dx = x2 - x1, dy = y2 - y1;
   const len2 = dx * dx + dy * dy;
-  let t = len2 === 0 ? 0 : ((c.x - x1) * dx + (c.y - y1) * dy) / len2;
+  let t = len2 === 0 ? 0 : ((cx - x1) * dx + (cy - y1) * dy) / len2;
   t = Math.max(0, Math.min(1, t));
-  const cx = x1 + t * dx;
-  const cy = y1 + t * dy;
-  return (cx - c.x) ** 2 + (cy - c.y) ** 2 < c.r * c.r;
+  const px = x1 + t * dx, py = y1 + t * dy;
+  return (px - cx) * (px - cx) + (py - cy) * (py - cy) < r * r;
 }
 
-// True when a wall or a statue stands between two points.
-export function lineBlocked(x1, y1, x2, y2, room) {
-  for (const w of room.walls) if (segHitsRect(x1, y1, x2, y2, w)) return true;
-  for (const s of room.statues) if (segHitsCircle(x1, y1, x2, y2, s)) return true;
-  return false;
+export function pointInShadow(x, y, room) {
+  return room.shadows.some((s) => x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h);
 }
 
-export function inShadow(x, y, room) {
-  return room.shadows.some((s) => pointInRect(x, y, s));
+export function pointOnCarpet(x, y, room) {
+  const c = room.carpet;
+  return x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h;
 }
-
-export function onCarpet(x, y, room) {
-  return room.carpet.some((c) => pointInRect(x, y, c));
-}
-
-// Push a circle (player or guard) out of walls, statues and the field edge.
-export function resolveCollisions(e, room) {
-  e.x = Math.max(e.r, Math.min(FIELD.w - e.r, e.x));
-  e.y = Math.max(e.r, Math.min(FIELD.h - e.r, e.y));
-  for (const w of room.walls) {
-    const cx = Math.max(w.x, Math.min(e.x, w.x + w.w));
-    const cy = Math.max(w.y, Math.min(e.y, w.y + w.h));
-    const dx = e.x - cx;
-    const dy = e.y - cy;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < e.r * e.r) {
-      if (d2 < 0.0001) {
-        e.y = w.y - e.r;
-      } else {
-        const d = Math.sqrt(d2);
-        e.x = cx + (dx / d) * e.r;
-        e.y = cy + (dy / d) * e.r;
-      }
-    }
-  }
-  for (const s of room.statues) {
-    const dx = e.x - s.x;
-    const dy = e.y - s.y;
-    const d = Math.hypot(dx, dy);
-    const min = s.r + e.r;
-    if (d < min && d > 0.0001) {
-      e.x = s.x + (dx / d) * min;
-      e.y = s.y + (dy / d) * min;
-    }
-  }
-}
-
-// --- the three rooms -------------------------------------------------------
-
-export const ROOMS = [
-  {
-    id: 0,
-    name: 'The Marble Atrium',
-    sub: 'Room 1 of 3 — the Sunflower hangs on the north wall',
-    objective: 'Steal The Midnight Sunflower',
-    start: { x: 120, y: 520 },
-    walls: [
-      { x: 180, y: 120, w: 30, h: 200 },
-      { x: 808, y: 120, w: 30, h: 200 },
-      { x: 430, y: 470, w: 158, h: 24 },
-    ],
-    statues: [
-      { x: 300, y: 300, r: 26 },
-      { x: 718, y: 300, r: 26 },
-      { x: 509, y: 400, r: 30 },
-    ],
-    shadows: [
-      { x: 60, y: 380, w: 180, h: 160 },
-      { x: 790, y: 380, w: 168, h: 160 },
-      { x: 60, y: 60, w: 150, h: 110 },
-    ],
-    carpet: [{ x: 470, y: 60, w: 78, h: 470 }],
-    loot: [
-      { id: 'sunflower', kind: 'painting', x: 509, y: 52, label: 'The Midnight Sunflower', hold: true, taken: false },
-    ],
-    guards: [
-      { x: 200, y: 150, wps: [[200, 150], [200, 450], [500, 450], [500, 150]], pause: 2, speed: 58 },
-      { x: 818, y: 150, wps: [[818, 150], [818, 450], [650, 300]], pause: 1, speed: 58 },
-    ],
-    cameras: [
-      { x: 980, y: 70, base: Math.PI * 0.72, sweep: 0.9, range: 250, speed: 0.55 },
-    ],
-    door: { x: 850, y: 560, w: 90, h: 32, to: 1 },
-    exit: null,
-  },
-  {
-    id: 1,
-    name: 'The Gilded Gallery',
-    sub: 'Room 2 of 3 — side gallery or service corridor, your pick',
-    objective: 'Lift the Emerald Scarab and the Ruby Idol',
-    start: { x: 900, y: 520 },
-    walls: [
-      { x: 300, y: 0, w: 26, h: 260 },
-      { x: 690, y: 330, w: 26, h: 262 },
-      { x: 480, y: 200, w: 180, h: 24 },
-    ],
-    statues: [
-      { x: 150, y: 300, r: 24 },
-      { x: 880, y: 150, r: 24 },
-    ],
-    shadows: [
-      { x: 40, y: 40, w: 170, h: 130 },
-      { x: 820, y: 420, w: 158, h: 132 },
-      { x: 330, y: 430, w: 300, h: 120 },
-    ],
-    carpet: [{ x: 60, y: 280, w: 900, h: 44 }],
-    loot: [
-      { id: 'emerald', kind: 'gem', x: 180, y: 120, label: 'Emerald Scarab', locked: true, taken: false },
-      { id: 'ruby', kind: 'gem', x: 880, y: 480, label: 'Ruby Idol', locked: true, taken: false },
-    ],
-    guards: [
-      { x: 350, y: 120, wps: [[350, 120], [350, 480], [650, 480], [650, 120]], pause: 2, speed: 58 },
-      { x: 850, y: 120, wps: [[850, 120], [850, 300]], pause: 1, speed: 58 },
-    ],
-    cameras: [
-      { x: 40, y: 296, base: 0, sweep: 0.8, range: 250, speed: 0.6 },
-      { x: 978, y: 70, base: 2.4, sweep: 0.7, range: 250, speed: 0.5 },
-    ],
-    door: { x: 120, y: 560, w: 90, h: 32, to: 2 },
-    exit: null,
-  },
-  {
-    id: 2,
-    name: 'The Vault Below',
-    sub: 'Room 3 of 3 — dark, quiet, and watched from both ends',
-    objective: 'Take the Crown and the Vault Sapphires, then run',
-    start: { x: 150, y: 520 },
-    walls: [
-      { x: 250, y: 100, w: 200, h: 30 },
-      { x: 570, y: 420, w: 200, h: 30 },
-      { x: 450, y: 240, w: 26, h: 160 },
-    ],
-    statues: [{ x: 509, y: 300, r: 28 }],
-    shadows: [
-      { x: 40, y: 40, w: 220, h: 200 },
-      { x: 760, y: 330, w: 218, h: 222 },
-      { x: 380, y: 440, w: 260, h: 120 },
-    ],
-    carpet: [{ x: 470, y: 60, w: 78, h: 300 }],
-    loot: [
-      { id: 'crown', kind: 'crown', x: 509, y: 90, label: 'The Gilded Crown', locked: true, taken: false },
-      { id: 'sapphires', kind: 'gem', x: 880, y: 120, label: 'Vault Sapphires', locked: true, taken: false },
-    ],
-    guards: [
-      { x: 300, y: 300, wps: [[300, 300], [700, 300]], pause: 1, speed: 62 },
-      { x: 509, y: 480, wps: [[509, 480], [509, 180]], pause: 2, speed: 62 },
-    ],
-    cameras: [
-      { x: 40, y: 70, base: 0.6, sweep: 0.9, range: 250, speed: 0.6 },
-      { x: 978, y: 520, base: 2.6, sweep: 0.8, range: 250, speed: 0.55 },
-    ],
-    door: null,
-    exit: { x: 880, y: 560, w: 110, h: 32 },
-  },
-];
-
-export const TOTAL_LOOT = ROOMS.reduce((n, r) => n + r.loot.length, 0);
