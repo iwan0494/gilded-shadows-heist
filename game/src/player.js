@@ -1,101 +1,142 @@
-// GILDED SHADOWS — the thief. One job: move, sneak, collide, interact.
-// SABLE moves at 150 px/s walking, 75 sneaking. Running on the red carpet
-// is loud; sneaking on marble is silent.
-import { pointOnCarpet, pointInShadow } from './world.js';
-import { PLAYER_R } from './config.js';
+// player.js — Sable: movement, sneak, carpet noise, lockpicking, lasers, doors.
+import { PLAY } from './config.js';
 
-export function makePlayer(start) {
+export function makePlayer(x, y) {
   return {
-    x: start.x, y: start.y,
-    dir: -Math.PI / 2,
-    sneak: false,
-    running: false,
-    moving: false,
-    inShadow: false,
-    onCarpet: false,
-    stepT: 0,
+    x, y, dir: -Math.PI / 2, speed: 150, sneaking: false, moving: false,
+    inShadow: false, interact: null, interactT: 0, noiseT: 0,
+    laserCool: 0, doorCool: 0,
   };
 }
 
-function collide(p, room) {
-  // Keep inside the playfield.
-  p.x = Math.max(PLAYER_R, Math.min(1014 - PLAYER_R, p.x));
-  p.y = Math.max(PLAYER_R, Math.min(596 - PLAYER_R, p.y));
-  // Push out of sight-blocking walls and statues.
-  for (const w of room.walls) {
-    const cx = Math.max(w.x, Math.min(p.x, w.x + w.w));
-    const cy = Math.max(w.y, Math.min(p.y, w.y + w.h));
-    const dx = p.x - cx, dy = p.y - cy;
-    const d = Math.hypot(dx, dy);
-    if (d < PLAYER_R) {
-      if (d === 0) { p.y -= PLAYER_R; continue; }
-      p.x = cx + (dx / d) * PLAYER_R;
-      p.y = cy + (dy / d) * PLAYER_R;
-    }
-  }
-  for (const s of room.statues) {
-    const dx = p.x - s.x, dy = p.y - s.y;
-    const d = Math.hypot(dx, dy);
-    const min = PLAYER_R + s.r;
-    if (d < min && d > 0) {
-      p.x = s.x + (dx / d) * min;
-      p.y = s.y + (dy / d) * min;
-    }
-  }
+function circleHitsRect(px, py, r, rc) {
+  const cx = Math.max(rc.x, Math.min(px, rc.x + rc.w));
+  const cy = Math.max(rc.y, Math.min(py, rc.y + rc.h));
+  const dx = px - cx, dy = py - cy;
+  return dx * dx + dy * dy < r * r;
 }
 
-export function updatePlayer(dt, state, room, input) {
-  const p = state.player;
-  let mx = 0, my = 0;
-  if (input.keys.has('arrowup') || input.keys.has('w')) my -= 1;
-  if (input.keys.has('arrowdown') || input.keys.has('s')) my += 1;
-  if (input.keys.has('arrowleft') || input.keys.has('a')) mx -= 1;
-  if (input.keys.has('arrowright') || input.keys.has('d')) mx += 1;
-  p.sneak = input.keys.has('shift');
-  p.moving = mx !== 0 || my !== 0;
-  if (p.moving) {
-    const len = Math.hypot(mx, my);
-    const speed = p.sneak ? 75 : 150;
-    p.x += (mx / len) * speed * dt;
-    p.y += (my / len) * speed * dt;
+function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
+  const d1 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
+  const d2 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+  const d3 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  const d4 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+export function updatePlayer(p, input, dt, world, game) {
+  const sp = input.sneak ? 70 : 150;
+  p.sneaking = input.sneak;
+  let mx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  let my = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+  const len = Math.hypot(mx, my);
+  p.moving = len > 0;
+  if (len > 0) {
+    mx /= len; my /= len;
     p.dir = Math.atan2(my, mx);
   }
-  collide(p, room);
-  p.inShadow = pointInShadow(p.x, p.y, room);
-  p.onCarpet = pointOnCarpet(p.x, p.y, room);
-  p.running = p.moving && !p.sneak;
-  // Loud steps on the carpet: a noise pulse while running across it.
-  if (p.running && p.onCarpet) {
-    p.stepT += dt;
-    if (p.stepT > 0.8) {
-      p.stepT = 0;
-      state.noises.push({ x: p.x, y: p.y, r: 6, maxR: 150, age: 0 });
-    }
-  } else {
-    p.stepT = 0;
-  }
-}
+  const ox = p.x, oy = p.y;
+  const nx = p.x + mx * sp * dt;
+  const ny = p.y + my * sp * dt;
 
-// Nearest loot the player can take right now (within 34 px, not yet taken).
-export function nearLoot(state, room) {
-  for (const l of room.loot) {
-    if (state.taken[l.id]) continue;
-    if (Math.hypot(l.x - state.player.x, l.y - state.player.y) < 40) return l;
+  // Axis-separated movement so the thief slides along statues and cases.
+  const solid = (x, y) => {
+    if (x < PLAY.x + 14 || x > PLAY.x + PLAY.w - 14 || y < PLAY.y + 14 || y > PLAY.y + PLAY.h - 14) return true;
+    for (const s of world.statues) {
+      if (Math.hypot(x - s.x, y - s.y) < s.r + 13) return true;
+    }
+    for (const c of world.cases) {
+      if (circleHitsRect(x, y, 13, c)) return true;
+    }
+    if (world.pedestal && Math.hypot(x - world.pedestal.x, y - world.pedestal.y) < 36 + 13) return true;
+    return false;
+  };
+  if (!solid(nx, p.y)) p.x = nx;
+  if (!solid(p.x, ny)) p.y = ny;
+
+  // Shadow: standing in a marked shadow zone hides the thief.
+  p.inShadow = world.shadows.some((s) => p.x > s.x && p.x < s.x + s.w && p.y > s.y && p.y < s.y + s.h);
+
+  // Running on the red carpet is loud: a visible noise ring every 0.9s.
+  p.noiseT -= dt;
+  if (p.moving && !p.sneaking && world.carpet) {
+    const c = world.carpet;
+    const onCarpet = p.x > c.x && p.x < c.x + c.w && p.y > c.y && p.y < c.y + c.h;
+    if (onCarpet && p.noiseT <= 0) {
+      p.noiseT = 0.9;
+      game.tools.rings.push({ x: p.x, y: p.y, r: 10, maxR: 70, a: 0.7 });
+      return { noise: { x: p.x, y: p.y, r: 200 } };
+    }
+  }
+
+  // Lasers: crossing a live beam spikes the alarm (once per 1.5s).
+  p.laserCool -= dt;
+  for (const l of world.lasers) {
+    if (!l.live || p.laserCool > 0) continue;
+    if (segmentsCross(ox, oy, p.x, p.y, l.x1, l.y1, l.x2, l.y2)) {
+      game.alarm = Math.min(100, game.alarm + 28);
+      game.dialog = { who: 'WREN', text: 'Lasers tripped! Move — Voss is coming.' };
+      game.tools.rings.push({ x: p.x, y: p.y, r: 10, maxR: 110, a: 0.9 });
+      p.laserCool = 1.5;
+      break;
+    }
+  }
+
+  // Doors: stepping into a door zone changes rooms.
+  p.doorCool -= dt;
+  if (p.doorCool <= 0) {
+    for (const d of world.doors) {
+      if (p.x > d.x - 10 && p.x < d.x + d.w + 10 && p.y > d.y - 30 && p.y < d.y + d.h + 30) {
+        game.changeRoom(d.to, d.to === 'atrium' ? 'north' : 'south');
+        p.doorCool = 1.2;
+        break;
+      }
+    }
+  }
+
+  // Exit pad: only open once the Sunflower is carried.
+  if (world.exit && game.sunflower && world.exit.open) {
+    const e = world.exit;
+    if (p.x > e.x && p.x < e.x + e.w && p.y > e.y && p.y < e.y + e.h) {
+      game.mode = 'win';
+      game.winTime = game.time;
+    }
   }
   return null;
 }
 
-// Is the player standing on a red laser beam while the lasers are live?
-export function onLaser(state, room) {
-  if (!room.lasers.length || !state.lasersLive) return false;
-  const p = state.player;
-  for (const b of room.lasers) {
-    const dx = b.x2 - b.x1, dy = b.y2 - b.y1;
-    const len2 = dx * dx + dy * dy;
-    let t = len2 === 0 ? 0 : ((p.x - b.x1) * dx + (p.y - b.y1) * dy) / len2;
-    t = Math.max(0, Math.min(1, t));
-    const px = b.x1 + t * dx, py = b.y1 + t * dy;
-    if (Math.hypot(p.x - px, p.y - py) < 14) return true;
+// Hold-E interaction: cases and the Sunflower pedestal. Returns what finished.
+export function updateInteract(p, input, dt, world, game) {
+  if (!input.interact) { p.interact = null; p.interactT = 0; return null; }
+  let target = null;
+  for (const c of world.cases) {
+    if (c.lootId && !c.empty && Math.hypot(p.x - (c.x + c.w / 2), p.y - (c.y + c.h / 2)) < 64) {
+      target = { kind: 'case', ref: c };
+      break;
+    }
   }
-  return false;
+  if (!target && world.pedestal && !game.sunflower) {
+    if (Math.hypot(p.x - world.pedestal.x, p.y - world.pedestal.y) < 78) {
+      target = { kind: 'sunflower', ref: world.pedestal };
+    }
+  }
+  if (!target) { p.interact = null; p.interactT = 0; return null; }
+  if (p.interact !== target.ref) { p.interact = target.ref; p.interactT = 0; }
+  p.interactT += dt;
+  if (p.interactT >= 1.2) {
+    p.interact = null; p.interactT = 0;
+    if (target.kind === 'case') {
+      target.ref.empty = true;
+      game.taken.add(target.ref.lootId);
+      game.dialog = { who: 'WREN', text: target.ref.label + ' — secured. ' + (5 - game.taken.size) + ' to go.' };
+    } else {
+      game.sunflower = true;
+      game.taken.add('sunflower');
+      game.alarm = Math.min(100, game.alarm + 15);
+      game.objective = 'Sunflower secured — get to the exit!';
+      game.dialog = { who: 'WREN', text: 'The Sunflower is yours — now get to the exit!' };
+    }
+    return target.kind;
+  }
+  return null;
 }

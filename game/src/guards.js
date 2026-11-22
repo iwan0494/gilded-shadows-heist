@@ -1,30 +1,41 @@
-// GILDED SHADOWS — guards. One job: patrol, see, suspect, chase, give up.
-// A guard shows what he knows: a detection pie above his head, "?" when
-// suspicious, "!" when alert. Detection is gradual (0-100), never binary.
-import { sightBlocked, pointInShadow } from './world.js';
-import { GUARD_TOUCH } from './config.js';
+// guards.js — patrols, vision cones, gradual detection, investigate, recover.
+// Detection is never binary: a 0–100% meter builds with distance, light and
+// speed, and decays in shadow or smoke. Guards show what they know.
+import { PLAY } from './config.js';
 
-const FOCUS_FOV = Math.PI / 3; // 60° focused cone
-const FOCUS_RANGE = 215;
-const PERIPH_FOV = Math.PI; // ~180° faint peripheral arc
-const PERIPH_RANGE = 120;
+export const FOCUS_HALF = Math.PI / 6; // 60° focused cone
+export const FOCUS_RANGE = 280;
+export const PERIPH_HALF = Math.PI / 2; // ~180° faint peripheral arc
+export const PERIPH_RANGE = 170;
 
-export function makeGuard(def, x, y) {
+export function makeGuard(def, waypoints, opts = {}) {
   return {
-    def, x, y,
-    wp: 0,
-    facing: Math.atan2(def.waypoints[1].y - y, def.waypoints[1].x - x),
-    meter: 0,
-    state: 'PATROL',
-    waitT: 0,
-    glance: 0,
-    investigate: null,
-    lastSeen: null,
-    searchT: 0,
-    loseT: 0,
-    jumpy: false,
-    speedMul: 1,
+    id: def.id, name: def.name, short: def.short, color: def.color,
+    x: waypoints[0][0], y: waypoints[0][1], dir: 0,
+    speed: def.speed, waypoints, wp: 1, wait: 0, glance: 0,
+    state: 'patrol', meter: 0, target: null, searchT: 0, alertT: 0,
+    unseenT: 0, jumpy: false, turnIn: 0, ...opts,
   };
+}
+
+function pointInCircle(px, py, c) {
+  const dx = px - c.x, dy = py - c.y;
+  return dx * dx + dy * dy <= c.r * c.r;
+}
+
+// Line of sight: sample along the segment; blocked by statue/pedestal circles
+// or by leaving the play area. Guards never see through walls.
+export function losClear(x1, y1, x2, y2, blockers) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy);
+  const steps = Math.max(1, Math.ceil(dist / 6));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const px = x1 + dx * t, py = y1 + dy * t;
+    if (px < PLAY.x || px > PLAY.x + PLAY.w || py < PLAY.y || py > PLAY.y + PLAY.h) return false;
+    for (const c of blockers.circles) if (pointInCircle(px, py, c)) return false;
+  }
+  return true;
 }
 
 function angleDiff(a, b) {
@@ -34,143 +45,122 @@ function angleDiff(a, b) {
   return d;
 }
 
-function inSmoke(state, x, y) {
-  return state.smokes.some((s) => {
-    const dx = x - s.x, dy = y - s.y;
-    return dx * dx + dy * dy < s.r * s.r;
-  });
-}
-
-// How fast this guard's meter climbs right now (0 when the player is unseen).
-export function senseRate(g, state, room) {
-  const p = state.player;
-  if (inSmoke(state, p.x, p.y)) return { rate: 0, why: 'HIDDEN — smoke' };
-  const dx = p.x - g.x, dy = p.y - g.y;
+// Sample three body points (head / torso / feet) before calling anyone seen.
+export function guardSees(g, px, py, blockers, sneaking) {
+  const dx = px - g.x, dy = py - g.y;
   const dist = Math.hypot(dx, dy);
+  if (dist > FOCUS_RANGE && dist > PERIPH_RANGE) return { kind: null, dist };
   const ang = Math.atan2(dy, dx);
-  const diff = Math.abs(angleDiff(ang, g.facing));
-  const shadow = pointInShadow(p.x, p.y, room);
-  const light = shadow ? 0.5 : 1;
-  const speed = state.player.sneak ? 0.7 : (state.player.running ? 1.4 : 1);
-  const jumpy = g.jumpy ? 1.5 : 1;
-  if (diff < FOCUS_FOV / 2 && dist < FOCUS_RANGE) {
-    if (sightBlocked(g.x, g.y, p.x, p.y, room)) return { rate: 0, why: 'HIDDEN — behind cover' };
-    const close = 1 - (dist / FOCUS_RANGE) * 0.6;
-    return { rate: 55 * close * light * speed * jumpy, why: shadow ? 'SEEN — in cone, shadow' : 'SEEN — in cone, lit' };
-  }
-  if (diff < PERIPH_FOV / 2 && dist < PERIPH_RANGE) {
-    if (sightBlocked(g.x, g.y, p.x, p.y, room)) return { rate: 0, why: 'HIDDEN — behind cover' };
-    return { rate: 14 * light * speed * jumpy, why: 'SEEN — peripheral' };
-  }
-  if (shadow) return { rate: 0, why: 'HIDDEN — shadow' };
-  return { rate: 0, why: 'HIDDEN — out of sight' };
+  const off = Math.abs(angleDiff(ang, g.dir));
+  const samples = [[px, py - 10], [px, py], [px, py + 10]];
+  const seen = samples.some(([sx, sy]) => losClear(g.x, g.y, sx, sy, blockers));
+  if (!seen) return { kind: null, dist };
+  if (off <= FOCUS_HALF && dist <= FOCUS_RANGE) return { kind: 'focus', dist };
+  if (off <= PERIPH_HALF && dist <= PERIPH_RANGE) return { kind: 'periph', dist };
+  return { kind: null, dist };
 }
 
-function moveToward(g, tx, ty, speed, dt) {
+function moveToward(g, tx, ty, dt, speedMul = 1) {
   const dx = tx - g.x, dy = ty - g.y;
   const d = Math.hypot(dx, dy);
   if (d < 2) return true;
-  const step = Math.min(d, speed * dt);
+  const step = Math.min(d, g.speed * speedMul * dt);
   g.x += (dx / d) * step;
   g.y += (dy / d) * step;
-  g.facing = Math.atan2(dy, dx);
+  g.dir = Math.atan2(dy, dx);
   return d - step < 2;
 }
 
-export function updateGuard(g, dt, state, room) {
-  const p = state.player;
-  const sensed = senseRate(g, state, room);
-  g.lastRate = sensed.rate;
-  g.lastWhy = sensed.why;
+export function updateGuard(g, dt, player, world, game, blockers) {
+  const inSmoke = game.tools.clouds.some((c) => Math.hypot(player.x - c.x, player.y - c.y) < c.r);
+  const see = inSmoke ? { kind: null, dist: 999 } : guardSees(g, player.x, player.y, blockers, player.sneaking);
+  const lit = !player.inShadow;
+  const speedMul = g.jumpy ? 1.25 : 1;
 
-  if (sensed.rate > 0) {
-    g.meter = Math.min(100, g.meter + sensed.rate * dt);
-    g.lastSeen = { x: p.x, y: p.y };
-    g.loseT = 0;
+  // --- detection meter: gradual, never a switch ---
+  if (see.kind === 'focus') {
+    const near = 1 - see.dist / (FOCUS_RANGE + 60);
+    let rate = 58 * (0.35 + 0.65 * near) * (player.sneaking ? 0.55 : 1) * (lit ? 1 : 0.55);
+    if (g.jumpy) rate *= 1.35;
+    g.meter = Math.min(100, g.meter + rate * dt);
+    g.unseenT = 0;
+  } else if (see.kind === 'periph') {
+    g.meter = Math.min(100, g.meter + 16 * dt);
+    g.unseenT = 0;
   } else {
-    g.meter = Math.max(0, g.meter - 18 * dt);
-    g.loseT += dt;
+    g.meter = Math.max(0, g.meter - (player.inShadow || inSmoke ? 42 : 22) * dt);
+    g.unseenT += dt;
+  }
+  if (g.meter >= 100 && g.state !== 'alert') {
+    g.state = 'alert';
+    g.alertT = 0;
+    game.alarm = Math.min(100, game.alarm + 25);
+    game.spotted = true;
+    game.alarmHistory.push('ALERT');
+    game.dialog = { who: 'WREN', text: g.short + ' has eyes on you — break line of sight!' };
   }
 
-  // State transitions from the meter.
-  if (g.meter >= 85) {
-    if (g.state !== 'ALERT') { g.state = 'ALERT'; state.spotted = true; }
-  } else if (g.meter >= 40) {
-    if (g.state === 'PATROL' || g.state === 'RETURN') g.state = 'SUSPICIOUS';
-  } else if (g.meter < 20 && (g.state === 'ALERT' || g.state === 'SEARCH')) {
-    g.state = 'SEARCH';
-    g.searchT = 3;
+  // --- behaviour by state ---
+  if (g.state === 'alert') {
+    g.alertT += dt;
+    if (see.kind) {
+      g.target = { x: player.x, y: player.y };
+      moveToward(g, player.x, player.y, dt, 1.5 * speedMul);
+      if (Math.hypot(player.x - g.x, player.y - g.y) < 26) game.caughtBy = g.short;
+    } else if (g.unseenT > 4) {
+      g.state = 'search';
+      g.searchT = 0;
+    }
+    return;
   }
-
-  // Noise: the nearest fresh noise inside 320 pulls a calm guard off route.
-  if ((g.state === 'PATROL' || g.state === 'RETURN') && state.noises.length) {
-    let best = null, bd = 320;
-    for (const n of state.noises) {
-      const d = Math.hypot(n.x - g.x, n.y - g.y);
-      if (d < bd) { bd = d; best = n; }
+  if (g.state === 'search') {
+    g.searchT += dt;
+    if (g.target) moveToward(g, g.target.x, g.target.y, dt, 1.1 * speedMul);
+    if (g.searchT > 3.5) { // gives up; the level continues in a worse state
+      g.state = 'patrol';
+      g.jumpy = true;
+      g.target = null;
     }
-    if (best) {
-      g.investigate = { x: best.x, y: best.y };
-      g.state = 'SUSPICIOUS';
-    }
+    return;
   }
-
-  const speed = g.def.speed * g.speedMul * (state.dawn <= 0 ? 1.3 : 1);
-
-  if (g.state === 'ALERT') {
-    const target = g.lastSeen || { x: p.x, y: p.y };
-    moveToward(g, target.x, target.y, speed * 1.5, dt);
-    if (Math.hypot(p.x - g.x, p.y - g.y) < GUARD_TOUCH) state.caughtBy = g.def.name;
-    if (g.loseT > 3) { g.state = 'SEARCH'; g.searchT = 3; }
-  } else if (g.state === 'SEARCH') {
-    if (g.lastSeen) moveToward(g, g.lastSeen.x, g.lastSeen.y, speed, dt);
-    g.searchT -= dt;
-    g.facing += Math.sin(state.time * 3) * 0.02; // sweep the area with his eyes
-    if (g.searchT <= 0) {
-      g.state = 'RETURN';
-      g.jumpy = true; // he gives up, but stays jumpy afterwards
-    }
-  } else if (g.state === 'SUSPICIOUS') {
-    if (g.investigate) {
-      const done = moveToward(g, g.investigate.x, g.investigate.y, speed, dt);
-      if (done) {
-        g.waitT = 2;
-        g.investigate = null;
+  if (g.state === 'investigate') {
+    if (g.target) {
+      const arrived = moveToward(g, g.target.x, g.target.y, dt, 1.15 * speedMul);
+      if (arrived) {
+        g.wait += dt;
+        g.dir += Math.sin(g.wait * 2.4) * 0.05; // looks around
+        if (g.wait > 2.2) { g.state = 'patrol'; g.wait = 0; g.target = null; }
       }
-    } else if (g.waitT > 0) {
-      g.waitT -= dt;
-      g.facing += Math.sin(state.time * 2.2) * 0.03; // glance around
-    } else if (g.meter < 40) {
-      g.state = 'RETURN';
-    }
-  } else if (g.state === 'RETURN') {
-    const wps = g.def.waypoints;
-    let best = 0, bd = Infinity;
-    wps.forEach((w, i) => {
-      const d = Math.hypot(w.x - g.x, w.y - g.y);
-      if (d < bd) { bd = d; best = i; }
-    });
-    g.wp = best;
-    if (moveToward(g, wps[best].x, wps[best].y, speed, dt)) g.state = 'PATROL';
-  } else {
-    // PATROL: walk the route, pause + glance at every waypoint.
-    const wps = g.def.waypoints;
-    const target = wps[g.wp];
-    if (g.waitT > 0) {
-      g.waitT -= dt;
-      g.facing = target.angle ?? g.facing;
-      g.facing += Math.sin(state.time * 1.6 + g.wp) * 0.35 * Math.min(1, g.waitT);
-    } else if (moveToward(g, target.x, target.y, speed, dt)) {
-      g.waitT = g.def.wait;
-      target.angle = g.facing;
-      g.wp = (g.wp + 1) % wps.length;
-    }
+    } else { g.state = 'patrol'; }
+    return;
+  }
+  // patrol: walk waypoints, pause + glance at each one
+  if (g.wait > 0) {
+    g.wait -= dt;
+    g.glance += dt;
+    g.dir += Math.sin(g.glance * 2.2) * 0.045; // sweeping glance
+    g.turnIn = Math.max(0, g.wait);
+    return;
+  }
+  const wp = g.waypoints[g.wp];
+  const arrived = moveToward(g, wp[0], wp[1], dt, speedMul);
+  g.turnIn = Math.max(0, Math.hypot(wp[0] - g.x, wp[1] - g.y) / (g.speed * speedMul));
+  if (arrived) {
+    g.wp = (g.wp + 1) % g.waypoints.length;
+    g.wait = 1.6;
+    g.glance = 0;
   }
 }
 
-export function guardStatus(g) {
-  if (g.state === 'ALERT') return 'ALERT';
-  if (g.state === 'SEARCH') return 'SEARCHING';
-  if (g.state === 'SUSPICIOUS') return 'SUSPICIOUS';
-  return 'CALM';
+// A noise pulls nearby patrolling guards off their route to check it.
+export function hearNoise(guards, noise) {
+  for (const g of guards) {
+    if (g.state !== 'patrol' && g.state !== 'investigate') continue;
+    if (Math.hypot(noise.x - g.x, noise.y - g.y) < noise.r) {
+      g.state = 'investigate';
+      g.target = { x: noise.x, y: noise.y };
+      g.wait = 0;
+      if (g.meter < 45) g.meter = 45;
+    }
+  }
 }

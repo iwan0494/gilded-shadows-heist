@@ -1,15 +1,19 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>GILDED SHADOWS — Steal the Midnight Sunflower</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  html, body { margin: 0; background: #0b1220; }
-  canvas { display: block; margin: 0 auto; }
+  html, body { margin: 0; padding: 0; background: #0e1220; height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: 1280px; height: 720px; max-width: 100vw; max-height: 100vh; display: block; background: #0e1220; }
+  #status { position: absolute; left: -9999px; top: -9999px; }
 </style>
 </head>
 <body>
 <canvas id="game" width="1280" height="720"></canvas>
+<div id="status">title</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

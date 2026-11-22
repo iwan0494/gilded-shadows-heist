@@ -4,58 +4,55 @@
 
 # GILDED SHADOWS — Steal the Midnight Sunflower
 
-A night-time museum heist. Top-down, candle-lit marble halls: slip past
-patrolling guards and their vision cones, dodge sweeping wall cameras, and
-steal **The Midnight Sunflower** — then get out through the service exit
-before dawn, without raising the alarm.
+A top-down stealth heist in a night museum. Plan the job on the blueprint,
+slip past named guards with readable patrol routes and vision cones, grab
+The Midnight Sunflower from behind its red lasers, and get out before dawn.
 
-You are **SABLE**, infiltrator. **WREN** talks in your ear on the radio.
-**JINX** waits outside with the engine running.
+You are **SABLE**, infiltrator. **WREN** talks in your ear. **JINX** waits
+outside with the engine running. Three rooms — the Marble Atrium, the Gilded
+Gallery, the Vault Below — five named pieces worth $1,200,000, one getaway.
 
-Three rooms, one getaway:
+## What makes it a heist
 
-1. **The Marble Atrium** — wide, legible patrols, long pauses, generous gaps.
-   The Emerald Scarab waits in a glass case by the west wall.
-2. **The Gilded Gallery** — paintings, cases, and Officer Dara's long
-   rectangular route. The Ruby Idol and the Brass Crown are here.
-3. **The Vault Below** — the Sunflower sits on a pedestal in the middle,
-   bobbing in gold light, ringed by red lasers. Curator Voss walks the
-   vault. Take the Sunflower, then run — the exit pad only opens for the
-   one who carries it.
+- **Guards show what they know.** Every guard has a name, a dashed patrol
+  route, a timer ring, and a detection pie that fills clockwise. `?` means
+  suspicious, `!` means seen. Detection is gradual (0–100%), driven by
+  distance, light and speed — never a binary switch.
+- **Guards investigate.** A thrown pebble pulls a guard off his route to
+  check the noise. Break line of sight and he searches, gives up, and goes
+  back — jumpier than before.
+- **Two palettes.** Stealth is deep navy and gold; the alarm flips the whole
+  room red.
+- **Two steps to win.** Secure the Sunflower (the HUD objective changes),
+  then reach the glowing teal exit pad carrying it. The pad opens for no one
+  else.
+- **One deadline.** Dawn comes in 05:00. After that, the whole house wakes.
 
-## How to play
+## Controls
 
-- **WASD / arrows** — move. **SHIFT** — sneak (slow, silent on marble).
-- **Mouse aim + CLICK** — throw a pebble; the nearest guard leaves his
-  route to investigate the noise. Watch the noise ring.
-- **E (hold)** — pick a locked display case, or lift the Sunflower.
-  Slow, and it can rattle.
-- **Q** — smoke pellet: blinds cameras and guards nearby for a few seconds.
-- **H** — field notes. **M** — mute. **ESC** — pause. **R** — restart room.
-
-Every guard shows what he knows: a **detection pie** fills above his head,
-a **"?"** means he heard something, a **"!"** means he sees you. Detection
-builds gradually — distance, light, and speed all matter — and a guard who
-loses you searches, then gives up, jumpier than before. **SHADOW** hides
-you; running on the red carpet is loud; sneaking on marble is silent.
-If a guard touches you or the alarm fills, you are caught — and you retry
-the room.
-
-The mission ends at dawn: **DAWN IN 05:00**. When it hits zero, the museum
-wakes up and the alarm jumps to ALARMED. Win clean and the getaway screen
-rates you **GHOST** if you were never spotted.
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Move |
+| SHIFT | Sneak (slow, quiet, harder to spot) |
+| Click | Throw a pebble (3) — pulls guards to the noise |
+| E (hold) | Steal / lockpick — hold the ring to fill it |
+| Q | Smoke pellet (2) — blinds cameras and guards |
+| H | Field notes |
+| M | Mute |
+| ESC | Pause |
+| R | Retry after being caught, or play again after the getaway |
 
 ## Run it
 
 ```sh
 node serve.ts
-# open http://localhost:8080
+# open http://localhost:8080/game/index.html
 ```
 
-No build step, no dependencies, no network: plain ES modules and canvas,
-sound from WebAudio synthesis only.
+Build the submission bundle:
 
-## Entry
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+```
 
-Built by an AI agent for make.fun's **"Make the best heist game"** bounty
-(`best-heist-game-20261122-0559`, $50 in USDC, top 10 paid).
+Node 22+, standard library only, no network, no build step.

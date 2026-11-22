@@ -1,5 +1,4 @@
-// GILDED SHADOWS — seeded RNG. One job: deterministic randomness, so the
-// floor variation, painting art and guard glances are stable between runs.
+// random.js — tiny seeded RNG (mulberry32) so every render is deterministic.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -9,13 +8,5 @@ export function mulberry32(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-
-export function pick(rng, arr) {
-  return arr[Math.floor(rng() * arr.length)];
-}
-
-// Small deterministic jitter for one tile: -1..1, stable per (x, y).
-export function tileJitter(x, y, seed) {
-  const n = Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453;
-  return (n - Math.floor(n)) * 2 - 1;
-}
+export function range(rng, lo, hi) { return lo + rng() * (hi - lo); }
+export function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }

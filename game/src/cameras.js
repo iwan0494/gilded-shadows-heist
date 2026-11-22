@@ -1,39 +1,25 @@
-// GILDED SHADOWS — wall cameras. One job: sweep a see-through 60° cone and
-// raise the alarm when the thief is caught in it, lit, and in line of sight.
-import { sightBlocked, pointInShadow } from './world.js';
+// cameras.js — wall cameras: a 60° translucent sweep that raises the alarm.
+// Smoke blinds them (grey BLIND state) until the cloud clears.
+import { losClear } from './guards.js';
 
-export function makeCamera(def) {
-  return {
-    x: def.x, y: def.y,
-    base: def.base, sweep: def.sweep, speed: def.speed,
-    angle: def.base,
-    blind: 0,
-    spotted: false,
-  };
+export function makeCamera(x, y, base, sweep, speed) {
+  return { x, y, base, angle: base, sweep, speed, blind: 0, phase: 0 };
 }
 
-export function updateCamera(cam, dt, state, room) {
-  cam.angle = cam.base + cam.sweep * Math.sin(state.time * cam.speed);
-  cam.spotted = false;
-  if (cam.blind > 0) {
-    cam.blind = Math.max(0, cam.blind - dt);
-    return;
-  }
-  const p = state.player;
-  const dx = p.x - cam.x, dy = p.y - cam.y;
+export function updateCamera(c, dt) {
+  c.phase += dt * c.speed;
+  c.angle = c.base + Math.sin(c.phase) * c.sweep;
+  if (c.blind > 0) c.blind -= dt;
+}
+
+export function cameraSees(c, px, py, blockers) {
+  if (c.blind > 0) return false;
+  const dx = px - c.x, dy = py - c.y;
   const dist = Math.hypot(dx, dy);
-  if (dist > 270) return;
-  let diff = Math.atan2(dy, dx) - cam.angle;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  if (Math.abs(diff) > Math.PI / 6) return; // 60° cone
-  if (sightBlocked(cam.x, cam.y, p.x, p.y, room)) return;
-  if (state.smokes.some((s) => {
-    const ddx = p.x - s.x, ddy = p.y - s.y;
-    return ddx * ddx + ddy * ddy < s.r * s.r;
-  })) return;
-  const lit = pointInShadow(p.x, p.y, room) ? 0.5 : 1;
-  if (lit <= 0) return;
-  cam.spotted = true;
-  state.alarm = Math.min(100, state.alarm + 22 * lit * dt);
+  if (dist > 300) return false;
+  let off = Math.atan2(dy, dx) - c.angle;
+  while (off > Math.PI) off -= Math.PI * 2;
+  while (off < -Math.PI) off += Math.PI * 2;
+  if (Math.abs(off) > Math.PI / 6) return false; // 60° cone
+  return losClear(c.x, c.y, px, py, blockers);
 }
