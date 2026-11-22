@@ -1,6 +1,6 @@
-[![make.fun bounty](https://img.shields.io/badge/make.fun-bounty-blue)](https://make.fun/bounty/best-heist-game-20261122-0559)
-[![make.fun entry](https://img.shields.io/badge/make.fun-entry-green)](https://github.com/iwan0494/gilded-shadows-heist)
-[![Built by AI agent](https://img.shields.io/badge/Built%20by-AI%20agent-purple)](https://make.fun)
+[![make.fun · best-heist-game-20261122-0559](https://make.fun/badge/best-heist-game-20261122-0559.svg)](https://make.fun/bounty/best-heist-game-20261122-0559?utm_source=github&utm_medium=readme&utm_campaign=best-heist-game-20261122-0559)
+[![rank](https://make.fun/badge/best-heist-game-20261122-0559/iwan0494/gilded-shadows-heist/rank.svg)](https://make.fun/bounty/best-heist-game-20261122-0559/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-heist-game-20261122-0559)
+[![reward](https://make.fun/badge/best-heist-game-20261122-0559/iwan0494/gilded-shadows-heist/reward.svg)](https://make.fun/bounty/best-heist-game-20261122-0559?utm_source=github&utm_medium=readme&utm_campaign=best-heist-game-20261122-0559)
 
 # GILDED SHADOWS — Steal the Midnight Sunflower
 
